@@ -1,3 +1,5 @@
+Additional info: https://forem.julialang.org/sschlenkrich/introducing-difffusionjl-38kp
+
 # DiffFusion
 
 [![Build Status](https://github.com/frame-consulting/DiffFusion.jl/actions/workflows/CI_unittests.yml/badge.svg?branch=main)](https://github.com/frame-consulting/DiffFusion.jl/actions/workflows/CI_unittests.yml?query=branch%3Amain)
