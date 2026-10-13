@@ -24,7 +24,7 @@ using Test
         @test DiffFusion.value(ts, 10.0) == [ 80., 50., 40., ] * 1e-4
         @test DiffFusion.value(ts, 12.0) == [ 80., 50., 40., ] * 1e-4
         #
-        @test_throws AssertionError DiffFusion.value(ts, 1.5, DiffFusion.TermstructureScalar)
+        @test_throws AssertionError DiffFusion.scalar_value(ts, 1.5)
         @test_throws AssertionError DiffFusion.backward_flat_parameter("MR", times[2:end], values)
         @test_throws AssertionError DiffFusion.backward_flat_parameter("MR", vcat([2.0], times[2:end]), values)
         #
@@ -51,7 +51,7 @@ using Test
         @test DiffFusion.value(ts,  0.0) == [ 60., ]
         @test DiffFusion.value(ts,  3.0) == [ 80., ]
         #
-        @test DiffFusion.value(ts, 1.5, DiffFusion.TermstructureScalar) == 70.
+        @test DiffFusion.scalar_value(ts, 1.5) == 70.
         @test ts(1.5) == [ 70., ]
         #
         @test_throws AssertionError DiffFusion.forward_flat_parameter("MR", times[2:end], values)
@@ -72,10 +72,10 @@ using Test
         #
         @test DiffFusion.alias(ts) == "MR"
         @test DiffFusion.value(ts, 1.5) == [ 60. ] * 1e-4
-        @test DiffFusion.value(ts, 1.5, DiffFusion.TermstructureScalar) == 60. * 1e-4
+        @test DiffFusion.scalar_value(ts, 1.5) == 60. * 1e-4
         #
         @test ts(1.5) == [ 60. ] * 1e-4
-        @test ts(1.5, DiffFusion.TermstructureScalar) == 60. * 1e-4
+        @test DiffFusion.scalar_value(ts, 1.5) == 60. * 1e-4
     end
 
     @testset "Flat parameter" begin
@@ -83,18 +83,32 @@ using Test
         #
         @test DiffFusion.alias(ts) == "MR"
         @test DiffFusion.value(ts) == [ 35. ] * 1e-4
-        @test DiffFusion.value(ts, DiffFusion.TermstructureScalar) == 35. * 1e-4
         @test DiffFusion.value(ts, 1.5) == [ 35. ] * 1e-4
-        @test DiffFusion.value(ts, 1.5, DiffFusion.TermstructureScalar) == 35. * 1e-4
+        @test DiffFusion.scalar_value(ts, 1.5) == 35. * 1e-4
         #
         @test ts() == [ 35. ] * 1e-4
-        @test ts(DiffFusion.TermstructureScalar) == 35. * 1e-4
         @test ts(1.5) == [ 35. ] * 1e-4
-        @test ts(1.5, DiffFusion.TermstructureScalar) == 35. * 1e-4
         #
         ts_simple = DiffFusion.flat_parameter(35. * 1e-4)
         @test DiffFusion.alias(ts_simple) == ""
         @test ts() == [ 35. ] * 1e-4
+    end
+
+    @testset "Integer as input type" begin
+        # times like [0.0, 1.0] are converted to [0, 1] by JSON3.jl
+        # this used to cause errors with DiffFusionServer
+        times =  [  1,  2,  5, 10 ]
+        values = [ 50  60  70  80 ;
+                   50  50  50  50 ;
+                   30  20  20  40 ]
+        #
+        ts = DiffFusion.backward_flat_parameter("Std", times, values)
+        @test ts.times == [ 1.0, 2.0, 5.0, 10.0 ]
+        @test ts.values == values
+        #
+        ts = DiffFusion.forward_flat_parameter("Std", times, values)
+        @test ts.times == [ 1.0, 2.0, 5.0, 10.0 ]
+        @test ts.values == values
     end
 
 end

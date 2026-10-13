@@ -11,6 +11,7 @@
         yts::YieldTermstructure;
         max_iter::Integer = 5,
         volatility_regularisation::ModelValue = 0.0,
+        scaling_type::BenchmarkTimesScaling = _default_benchmark_time_scaling,
         )
 
 Calibrate a model with flat volatilities and mean reversion
@@ -25,6 +26,7 @@ function gaussian_hjm_model(
     yts::YieldTermstructure;
     max_iter::Integer = 5,
     volatility_regularisation::ModelValue = 0.0,
+    scaling_type::BenchmarkTimesScaling = _default_benchmark_time_scaling,
     )
     #
     # check inputs first
@@ -50,7 +52,7 @@ function gaussian_hjm_model(
         chi_ = vcat([exp_x[1]], exp_x[1] .+ d_chi)   #  ensure monotonicity
         chi = flat_parameter(chi_)
         sigma_f = backward_flat_volatility("", [0.0], reshape(exp_x[d+1:end], (:,1)) )
-        return gaussian_hjm_model(alias, delta, chi, sigma_f, ch, nothing)
+        return gaussian_hjm_model(alias, delta, chi, sigma_f, ch, nothing, scaling_type)
     end
     #
     x0 = log.(vcat(
@@ -104,13 +106,16 @@ end
         yts::YieldTermstructure;
         max_iter::Integer = 5,
         volatility_regularisation::ModelValue = 0.0,
+        scaling_type::BenchmarkTimesScaling = _default_benchmark_time_scaling,
+        swap_maturity_indices::Union{AbstractVector, Nothing} = nothing,
+        swap_maturity_weights::Union{AbstractVector, Nothing} = nothing,
         )
 
 
 Calibrate a model with piece-wise constant volatilities to strips of
 co-initial normal volatilities.
 
-Mean reversion (and correlations) are exogeneously specified.
+Mean reversion (and correlations) are exogenously specified.
 """
 function gaussian_hjm_model(
     alias::String,
@@ -123,6 +128,9 @@ function gaussian_hjm_model(
     yts::YieldTermstructure;
     max_iter::Integer = 5,
     volatility_regularisation::ModelValue = 0.0,
+    scaling_type::BenchmarkTimesScaling = _default_benchmark_time_scaling,
+    swap_maturity_indices::Union{AbstractVector, Nothing} = nothing,
+    swap_maturity_weights::Union{AbstractVector, Nothing} = nothing,
     )
     #
     # check inputs first
@@ -137,6 +145,32 @@ function gaussian_hjm_model(
         @assert swap_maturities[j] > swap_maturities[j-1]
     end
     @assert size(swap_rate_volatilities) == (length(option_times), length(swap_maturities))
+    #
+    if !isnothing(swap_maturity_indices)
+        # an index vector of swap_maturities per element in option_times
+        # we allow underdetermined systems, this requires regularisation
+        @assert length(swap_maturity_indices) == length(option_times)
+        for idx_vector in swap_maturity_indices
+            @assert length(idx_vector) > 0                           # at least one index
+            @assert length(idx_vector) <= length(swap_maturities)    # not more indices than swap maturities
+            @assert all(isa.(idx_vector, Integer))                   # all elements are Integer
+            @assert issorted(idx_vector)                             # sorted indices for clear spec
+            @assert idx_vector == unique(idx_vector)                 # no duplicate indices for calibration
+            @assert idx_vector[begin] >= minimum(eachindex(swap_maturities))  # valid index in swap maturities
+            @assert idx_vector[end]   <= maximum(eachindex(swap_maturities))  # valid index in swap maturities
+        end
+    end
+    #
+    if !isnothing(swap_maturity_weights)
+        @assert !isnothing(swap_maturity_indices)
+        # one weight per swap maturity per option_time
+        @assert length(swap_maturity_weights) == length(swap_maturity_indices)
+        for (weight_vector, index_vector) in zip(swap_maturity_weights, swap_maturity_indices)
+            @assert length(weight_vector) == length(index_vector)
+            @assert all(weight_vector .≥ 0.0)
+            @assert sum(weight_vector) > 0.0
+        end
+    end
     #
     @assert volatility_regularisation ≥ 0.0
     @assert volatility_regularisation ≤ 1.0
@@ -154,18 +188,27 @@ function gaussian_hjm_model(
         )
         sigma_f = backward_flat_volatility("", m.sigma_T.sigma_f.times, sigma_f_)
         # TODO: use low-level incremental model construction
-        return gaussian_hjm_model(alias, delta, chi, sigma_f, ch, nothing)
+        return gaussian_hjm_model(alias, delta, chi, sigma_f, ch, nothing, scaling_type)
     end
     #
     x0 = log.(mean(swap_rate_volatilities) * ones(d))
     σ0 = backward_flat_volatility("", option_times, zeros((d, length(option_times))))
-    m0 = gaussian_hjm_model(alias, delta, chi, σ0, ch, nothing)
+    m0 = gaussian_hjm_model(alias, delta, chi, σ0, ch, nothing, scaling_type)
     X = zeros( (length(state_alias(m0)), 1) )
     SX = model_state(X, m0)
     function obj_F(x::AbstractVector, m::GaussianHjmModel, idx::Integer)
         m = model(x, m, idx)
-        σ = model_implied_volatilties(yts, m, option_times[idx:idx], swap_maturities, SX)
-        obj = vec(σ - swap_rate_volatilities[idx:idx,:])
+        swp_idx_vector = eachindex(swap_maturities)  # default behaviour
+        if !isnothing(swap_maturity_indices)
+            swp_idx_vector = swap_maturity_indices[idx]
+        end
+        swap_weights = ones(length(swp_idx_vector))  # default behaviour
+        if !isnothing(swap_maturity_weights)
+            swap_weights = swap_maturity_weights[idx]
+            swap_weights = (length(swp_idx_vector) / sum(swap_weights)) .* swap_weights
+        end
+        σ = model_implied_volatilties(yts, m, option_times[idx:idx], swap_maturities[swp_idx_vector], SX)
+        obj = swap_weights .* vec(σ .- swap_rate_volatilities[idx:idx, swp_idx_vector])
         if volatility_regularisation > 0.0
             model_vol = m.sigma_T.sigma_f.values[:,idx]
             obj_vol = model_vol[begin+1:end] - model_vol[begin:end-1]

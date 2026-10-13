@@ -23,35 +23,62 @@ function _intersect_interval(s::ModelTime, t::ModelTime, grid::AbstractVector)
     return g
 end
 
+"""
+    _norm2(x)
+
+Calculate the 2-norm without division.
+
+This method is required for quadgk. Julia's `norm(x)` method yields `NaN`
+at zero for `ForwardDiff.Dual`s.
+
+See also [here](https://github.com/JuliaDiff/ForwardDiff.jl/issues/785).
+"""
+function _norm2(x)
+    return sqrt(sum(x.^2)) / length(x)
+end
 
 """
-    _scalar_integral(f::Function, s::ModelTime, t::ModelTime)
+    _scalar_integral(f::Any, s::ModelTime, t::ModelTime)
 
 Calculate the integral for a scalar function f in the range [s,t].
 """
-function _scalar_integral(f::Function, s::ModelTime, t::ModelTime, grid::Union{AbstractVector, Nothing} = nothing)
-    if isnothing(grid)
-        return quadgk(f, s, t)[1]
-    end
+function _scalar_integral(f::Any, s::ModelTime, t::ModelTime, grid::Nothing = nothing)
+    return quadgk(f, s, t, norm = _norm2)[1]
+end
+
+"""
+    _scalar_integral(f::Any, s::ModelTime, t::ModelTime, grid::AbstractVector)
+
+Calculate the integral for a scalar function f in the range [s,t] split using `grid`.
+"""
+function _scalar_integral(f::Any, s::ModelTime, t::ModelTime, grid::AbstractVector)
     grid = _intersect_interval(s, t, grid)
     return sum([
-        quadgk(f, l, u)[1]
+        quadgk(f, l, u, norm = _norm2)[1]
         for (l, u) in zip(grid[1:end-1], grid[2:end])
     ])
 end
 
+
 """
-    _vector_integral(f::Function, s::ModelTime, t::ModelTime)
+    _vector_integral(f::Any, s::ModelTime, t::ModelTime)
 
 Calculate the integral for a vector-valued function f in the range [s,t].
 """
-function _vector_integral(f::Function, s::ModelTime, t::ModelTime, grid::Union{AbstractVector, Nothing} = nothing)
-    if isnothing(grid)
-        return quadgk(f, s, t)[1]
-    end
+function _vector_integral(f::Any, s::ModelTime, t::ModelTime, grid::Nothing = nothing)
+    return quadgk(f, s, t, norm = _norm2)[1]
+end
+
+
+"""
+    _vector_integral(f::Any, s::ModelTime, t::ModelTime, grid::AbstractVector)
+
+Calculate the integral for a vector-valued function f in the range [s,t] split using `grid`..
+"""
+function _vector_integral(f::Any, s::ModelTime, t::ModelTime, grid::AbstractVector)
     grid = _intersect_interval(s, t, grid)
     return sum([
-        quadgk(f, l, u)[1]
+        quadgk(f, l, u, norm = _norm2)[1]
         for (l, u) in zip(grid[1:end-1], grid[2:end])
     ])
 end

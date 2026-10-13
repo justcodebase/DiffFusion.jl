@@ -8,6 +8,12 @@ In this section we document commonly used utility structures methods.
 DiffFusion.interpolation_methods
 ```
 
+## Alias Mapping
+
+```@docs
+DiffFusion.alias_mapping
+```
+
 ## Polynomial Regression Methods
 
 ```@docs
@@ -151,4 +157,30 @@ DiffFusion.bachelier_implied_stdev
 
 ```@docs
 DiffFusion.bachelier_implied_volatility
+```
+
+```@docs
+DiffFusion.bachelier_implied_volatility_jaeckel
+```
+
+## Barrier Pricing Formulas
+
+```@docs
+DiffFusion.black_scholes_vanilla_price
+```
+
+```@docs
+DiffFusion.black_scholes_barrier_price
+```
+
+```@docs
+DiffFusion.up_hit_probability
+```
+
+```@docs
+DiffFusion.down_hit_probability
+```
+
+```@docs
+DiffFusion.barrier_no_hit_probability
 ```

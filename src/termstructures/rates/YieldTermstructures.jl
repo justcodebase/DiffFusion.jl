@@ -1,15 +1,15 @@
 
 """
-    struct FlatForward <: YieldTermstructure
+    struct FlatForward{T<:ModelValue} <: YieldTermstructure
         alias::String
-        rate
+        rate::T
     end
 
 A constant yield term structure.
 """
-struct FlatForward <: YieldTermstructure
+struct FlatForward{T<:ModelValue} <: YieldTermstructure
     alias::String
-    rate
+    rate::T
 end
 
 """
@@ -39,23 +39,40 @@ function discount(ts::FlatForward, t::ModelTime)
     return exp(-ts.rate * t)
 end
 
+"""
+    zero_rate(ts::FlatForward, t0::ModelTime, t1::ModelTime)
+
+Calculate continuous compounded zero rate over a period (t0, t1).
+"""
+function zero_rate(ts::FlatForward, t0::ModelTime, t1::ModelTime)
+    return ts.rate
+end
 
 """
-    struct ZeroCurve <: YieldTermstructure
+    forward_rate(ts::FlatForward, t::ModelTime, dt=0.0)
+
+Calculate the forward rate at time t.
+"""
+function forward_rate(ts::FlatForward, t::ModelTime, dt=0.0)
+    return ts.rate
+end
+
+"""
+    struct ZeroCurve{T<:ModelValue, InterpolationType} <: YieldTermstructure
         alias::String
-        times::AbstractVector
-        values::AbstractVector
-        interpolation
+        times::Vector{ModelTime}
+        values::Vector{T}
+        interpolation::InterpolationType
     end
 
 A yield term structure based on interpolated continuous
 compounded zero rates.
 """
-struct ZeroCurve <: YieldTermstructure
+struct ZeroCurve{T<:ModelValue, InterpolationType} <: YieldTermstructure
     alias::String
-    times::AbstractVector
-    values::AbstractVector
-    interpolation
+    times::Vector{ModelTime}
+    values::Vector{T}
+    interpolation::InterpolationType
 end
 
 """
@@ -74,7 +91,8 @@ function zero_curve(
     values::AbstractVector,
     interp_method = (x,y) -> linear_interpolation(x, y, extrapolation_bc = Line()),
     )
-    return ZeroCurve(alias, times, values, interp_method(times, values))
+    times_ = [ ModelTime(t) for t in times ]
+    return ZeroCurve(alias, times_, values, interp_method(times, values))
 end
 
 """
@@ -143,10 +161,10 @@ end
 
 
 """
-    struct LinearZeroCurve <: YieldTermstructure
+    struct LinearZeroCurve{T<:ModelValue} <: YieldTermstructure
         alias::String
-        times::AbstractVector
-        values::AbstractVector
+        times::Vector{ModelTime}
+        values::Vector{T}
     end
 
 A yield term structure based on continuous compounded zero rates
@@ -154,10 +172,10 @@ with linear interpolation and flat extrapolation.
 
 This curve aims at mitigating limitations of Zygote and ZeroCurve.
 """
-struct LinearZeroCurve <: YieldTermstructure
+struct LinearZeroCurve{T<:ModelValue} <: YieldTermstructure
     alias::String
-    times::AbstractVector
-    values::AbstractVector
+    times::Vector{ModelTime}
+    values::Vector{T}
 end
 
 
@@ -175,7 +193,8 @@ function linear_zero_curve(
     times::AbstractVector,
     values::AbstractVector,
     )
-    return LinearZeroCurve(alias, times, values)
+    times_ = [ ModelTime(t) for t in times ]
+    return LinearZeroCurve(alias, times_, values)
 end
 
 
@@ -196,11 +215,11 @@ end
 
 
 """
-    _interpole(ts::LinearZeroCurve, t::ModelTime)
+    _interpolate(ts::LinearZeroCurve, t::ModelTime)
 
-Linear  interpolation with flat exrapolation.
+Linear interpolation with flat exrapolation.
 """
-function _interpole(ts::LinearZeroCurve, t::ModelTime)
+function _interpolate(ts::LinearZeroCurve, t::ModelTime)
     idx = searchsortedfirst(ts.times, t)
      # left flat extrapolation
     if idx == 1
@@ -222,6 +241,6 @@ end
 Calculate discount factor.
 """
 function discount(ts::LinearZeroCurve, t::ModelTime)
-    z = _interpole(ts, t)
+    z = _interpolate(ts, t)
     return exp(-z * t)
 end

@@ -1,0 +1,459 @@
+
+
+"""
+    abstract type QuasiGaussianModel <: SeparableHjmModel end
+
+A QuasiGaussianModel is a model for the state variable `x`, integrated
+state variable `s` and auxiliary variable `y`.
+
+The model is implemented as d-factor model.
+
+Concrete implementations of QuasiGaussianModel must hold the following fields:
+- `gaussian_model`: an underlying GaussianHjmModel,
+- `state_alias`: a list of state alias strings for (x, s, y),
+- `factor_alias`: a list of factor alias strings for dW.
+
+Concrete implementations of QuasiGaussianModel must implement the following methods:
+- `func_sigma_f(m, s, t, X)`: local/stochastic volatility for the interval (s, t).
+  Function is is supposed to return a (d, p) matrix where d is the number of factors
+  and p is the number of paths in the ModelState X.
+"""
+abstract type QuasiGaussianModel <: SeparableHjmModel end
+
+# Model interface
+
+"""
+    alias(m::QuasiGaussianModel)
+
+Return the model's own alias.
+"""
+alias(m::QuasiGaussianModel) = alias(m.gaussian_model)
+
+"""
+    parameter_grid(m::QuasiGaussianModel)
+
+Return a list of times representing the (joint) grid points of piece-wise
+constant model parameters.
+"""
+parameter_grid(m::QuasiGaussianModel) = parameter_grid(m.gaussian_model)
+
+"""
+    state_dependent_Theta(m::QuasiGaussianModel)
+
+Return whether Theta requires a state vector input X.
+"""
+state_dependent_Theta(m::QuasiGaussianModel) = true  # COV_EXCL_LINE
+
+"""
+    state_alias_H(m::QuasiGaussianModel)
+
+Return a list of state alias strings required for (H * X) calculation.
+"""
+state_alias_H(m::QuasiGaussianModel) = state_alias(m)
+
+"""
+    state_dependent_H(m::QuasiGaussianModel)
+
+Return whether H requires a state vector input X.
+"""
+state_dependent_H(m::QuasiGaussianModel) = false  # COV_EXCL_LINE
+
+"""
+    state_alias_Sigma(m::QuasiGaussianModel)
+
+Return a list of state alias strings required for (Sigma(u)' Gamma Sigma(u)) calculation.
+
+Note, auxiliary variable `y` is *not* included here.
+"""
+state_alias_Sigma(m::QuasiGaussianModel) = state_alias_Sigma(m.gaussian_model)
+
+"""
+Return a list of factor alias strings required for (Sigma(u)^T Gamma Sigma(u)) calculation.
+"""
+factor_alias_Sigma(m::QuasiGaussianModel) = factor_alias(m)
+
+"""
+Return whether Sigma requires a state vector input X.
+"""
+state_dependent_Sigma(m::QuasiGaussianModel) = true  # COV_EXCL_LINE
+
+
+# Modelled variables
+
+"""
+    state_variable(
+        m::QuasiGaussianModel,
+        X::ModelState,
+        )
+
+Extract the quasi-Gaussian state variable `x` from `ModelState`.
+"""
+function state_variable(
+    m::QuasiGaussianModel,
+    X::ModelState,
+    )
+    #
+    idx = X.idx[state_alias(m)[begin]]
+    d = length(state_alias(m.gaussian_model)) - 1  # exclude s-variable
+    return @view(X.X[idx:idx+(d-1),:])  # as (d, p) matrix
+end
+
+"""
+    integrated_state_variable(
+        m::QuasiGaussianModel,
+        X::ModelState,
+        )
+
+Extract the integrated state variable `s` from `ModelState`.
+"""
+function integrated_state_variable(
+    m::QuasiGaussianModel,
+    X::ModelState,
+    )
+    #
+    s_alias = state_alias(m.gaussian_model)[end]
+    idx = X.idx[s_alias]
+    return @view(X.X[idx:idx,:])   # as (1, p) matrix
+end
+
+"""
+    auxiliary_variable(
+        m::QuasiGaussianModel,
+        X::ModelState,
+        )
+
+Extract the quasi-Gaussian auxiliary variable `y` from `ModelState`.
+"""
+function auxiliary_variable(
+    m::QuasiGaussianModel,
+    X::ModelState,
+    )
+    #
+    idx = X.idx[state_alias(m)[1]]
+    d = length(state_alias(m.gaussian_model)) - 1  # exclude s-variable
+    idx += (d + 1)  # skip x and s variable
+    y_vec = @view(X.X[idx:idx+(d*d-1),:])
+    reshape(y_vec, (d, d, :))  # as (d, d, p) array
+end
+
+# Abstract volatility specification - needs implementation in concrete model
+
+"""
+    func_sigma_f(
+        m::QuasiGaussianMultiFactorModel,
+        s::ModelTime,
+        t::ModelTime,
+        X::ModelState,
+        )
+
+Calculate the benchmark-rate local/stochastic volatility for the interval
+(s, t).
+
+This method assumes that local volatility is constant on the interval (s, t).
+
+The function returns a (d, p) where d is the number of factors and p is the number of paths.
+"""
+function func_sigma_f(
+    m::QuasiGaussianModel,
+    s::ModelTime,
+    t::ModelTime,
+    X::ModelState,
+    )
+    #
+    # as (d, p) matrix
+    error("Concrete QuasiGaussianModel must implement func_sigma_f.")
+end
+
+
+# Common QuasiGaussianModel volatility functions
+
+"""
+    func_sigma_T(
+        m::QuasiGaussianModel,
+        sigma_f::AbstractMatrix,
+        )
+
+Calculate the state variable volatility function as (d, d, p) array.
+"""
+function func_sigma_T(
+    m::QuasiGaussianModel,
+    sigma_f::AbstractMatrix,
+    )
+    #
+    v = m.gaussian_model.sigma_T
+    (d, p) = size(sigma_f)
+    return [
+        sum( v.scaling_matrix[i,k] * v.DfT[k,j] * sigma_f[k, l] for k = 1:d )
+        for i = 1:d, j = 1:d, l = 1:p
+    ]  # as (d, d, p) array
+end
+
+"""
+    func_sigma_T_hyb(
+        m::QuasiGaussianModel,
+        sigma_f::AbstractMatrix,
+        )
+
+Calculate the state variable volatility function for the hybrid model interface.
+"""
+function func_sigma_T_hyb(
+    m::QuasiGaussianModel,
+    sigma_f::AbstractMatrix,
+    )
+    #
+    A = m.gaussian_model.sigma_T.scaling_matrix
+    return reshape(A, (size(A)...,1)) .* reshape(sigma_f, (1,size(sigma_f)...))
+    # as (d, d, p) array
+end
+
+"""
+A `HjmAuxiliaryVariable` functor for `QuasiGaussianModel`.
+"""
+struct QuasiGaussianAuxiliaryVariable{
+        T1<:ModelValue,
+        T2<:ModelValue,
+        T3<:ModelValue,
+    } <: HjmAuxiliaryVariable
+    #
+    y0::Matrix{T1}
+    chi::Vector{T2}
+    sigmaT::Matrix{T3}
+    t0::ModelTime
+end
+
+"""
+Evaluate `QuasiGaussianAuxiliaryVariable` at time `t`.
+"""
+(v::QuasiGaussianAuxiliaryVariable)(t::ModelTime) = func_y(v.y0, v.chi, v.sigmaT, v.t0, t)
+
+
+"""
+A `HjmHybridVolatility` for a `QuasiGaussianModel`.
+"""
+struct QuasiGaussianHybridVolatility{T<:ModelValue} <: HjmHybridVolatility
+    sigma_T_hyb::Matrix{T}
+end
+
+"""
+Evaluate `QuasiGaussianHybridVolatility` at time `t`.
+"""
+(v::QuasiGaussianHybridVolatility)(t::ModelTime) = v.sigma_T_hyb
+
+
+# Simulation functions
+
+
+"""
+    Theta(
+        m::QuasiGaussianModel,
+        s::ModelTime,
+        t::ModelTime,
+        X::Union{ModelState, Nothing} = nothing,
+        )
+
+Return the deterministic drift component for simulation over the time period [s, t] and
+using the state vector `X`.
+
+Method returns a vector of length(state_alias).
+"""
+function Theta(
+    m::QuasiGaussianModel,
+    s::ModelTime,
+    t::ModelTime,
+    X::Union{ModelState, Nothing} = nothing,
+    )
+    @assert isnothing(X) == !state_dependent_Theta(m)
+    @assert size(X.X)[2] == 1  # require a single state
+    @assert s ≤ t
+    # note, we cannot calculate y(u) if sigma_f changes
+    sigma_f = func_sigma_f(m, s, t, X)
+    #
+    y0 = auxiliary_variable(m, X)[:, :, begin]  # need a Matrix
+    chi = m.gaussian_model.chi()
+    sigma_T = func_sigma_T(m, sigma_f)[:,:, begin]  # we need a Matrix here
+    y = QuasiGaussianAuxiliaryVariable(y0, chi, sigma_T, s)
+    # make sure we do not apply correlations twice in quanto adjustment!
+    sigma_T_hyb = func_sigma_T_hyb(m, sigma_f)[:, :, begin]
+    sigma_T_hyb_vol = QuasiGaussianHybridVolatility(sigma_T_hyb)
+    # take into account quanto adjustment
+    qm = m.gaussian_model.quanto_model
+    if !isnothing(qm) && state_dependent_Sigma(qm)
+        alpha = quanto_drift(m.gaussian_model.factor_alias, qm, s, t, X)
+    else
+        alpha = quanto_drift(m.gaussian_model.factor_alias, qm, s, t, nothing)
+    end
+    return vcat(
+        func_Theta(chi, y, sigma_T_hyb_vol, alpha, s, t, parameter_grid(m)),
+        vec(y(t)),
+    )
+end
+
+
+"""
+    H_T(
+        m::QuasiGaussianModel,
+        s::ModelTime,
+        t::ModelTime,
+        X::Union{ModelState, Nothing} = nothing,
+        )
+
+Return the transposed of the convection matrix H for simulation over the time period
+[s, t].
+"""
+function H_T(
+    m::QuasiGaussianModel,
+    s::ModelTime,
+    t::ModelTime,
+    X::Union{ModelState, Nothing} = nothing,
+    )
+    @assert isnothing(X) == !state_dependent_H(m)
+    H_T_gaussian = func_H_T(m.gaussian_model.chi(), s, t)
+    M = length(state_alias_H(m))
+    return sparse(findnz(H_T_gaussian)..., M, M)
+end
+
+
+"""
+    Sigma_T(
+        m::QuasiGaussianModel,
+        s::ModelTime,
+        t::ModelTime,
+        X::Union{ModelState, Nothing} = nothing,
+        )
+
+Return a matrix-valued function representing the volatility matrix function.
+"""
+function Sigma_T(
+    m::QuasiGaussianModel,
+    s::ModelTime,
+    t::ModelTime,
+    X::Union{ModelState, Nothing} = nothing,
+    )
+    @assert isnothing(X) == !state_dependent_Sigma(m)
+    @assert size(X.X)[2] == 1  # require a single state
+    @assert s ≤ t
+    # note, we cannot sigma_T if sigma_f changes
+    sigma_f = func_sigma_f(m, s, t, X)
+    # make sure we do not apply correlations twice!
+    sigma_T_hyb = func_sigma_T_hyb(m, sigma_f)[:, :, begin]  # we need a Matrix here
+    sigma_T_hyb_vol = QuasiGaussianHybridVolatility(sigma_T_hyb)
+    return func_Sigma_T(m.gaussian_model.chi(), sigma_T_hyb_vol, s, t)
+end
+
+
+"""
+    simulation_parameters(
+        m::QuasiGaussianModel,
+        ch::Union{CorrelationHolder, Nothing},
+        s::ModelTime,
+        t::ModelTime,
+        )
+
+Pre-calculate parameters that are used in state-dependent Theta and Sigma calculation.
+
+For QuasiGaussianModel there are no valuations that should be cached.
+"""
+function simulation_parameters(
+    m::QuasiGaussianModel,
+    ch::Union{CorrelationHolder, Nothing},
+    s::ModelTime,
+    t::ModelTime,
+    )
+    #
+    return nothing
+end
+
+
+# Model functions for payoff evaluation
+
+
+"""
+    log_bank_account(m::QuasiGaussianModel, model_alias::String, t::ModelTime, X::ModelState)
+
+Retrieve the integral over sum of state variables s(t) from interest rate model.
+"""
+function log_bank_account(m::QuasiGaussianModel, model_alias::String, t::ModelTime, X::ModelState)
+    @assert alias(m) == model_alias
+    return vec(integrated_state_variable(m, X))
+end
+
+function _func_GyG(G::AbstractVector, y::AbstractArray)
+    return [
+        sum(G[i] * sum(y[i,j,p] * G[j] for j in axes(y, 2)) for i in axes(y, 1))
+        for p in axes(y, 3)
+    ]
+end
+
+"""
+    log_zero_bond(m::QuasiGaussianModel, model_alias::String, t::ModelTime, T::ModelTime, X::ModelState)
+
+Calculate the zero bond term [G(t,T)' x(t) + 0.5 G(t,T)' y(t) G(t,T)]' from rates model.
+"""
+function log_zero_bond(m::QuasiGaussianModel, model_alias::String, t::ModelTime, T::ModelTime, X::ModelState)
+    @assert alias(m) == model_alias
+    #
+    G = G_hjm(m.gaussian_model, t, T) # (d,) vector
+    X_ = state_variable(m, X)      # (d, p) matrix
+    Y_ = auxiliary_variable(m, X)  # (d, d, p) array
+    #
+    GyG = _func_GyG(G, Y_)  # (p,) vector
+    #
+    return X_' * G .+ (0.5 .* GyG)
+end
+
+"""
+    log_zero_bonds(m::QuasiGaussianModel, model_alias::String, t::ModelTime, T::AbstractVector, X::ModelState)
+
+Calculate the zero bond terms [G(t,T)' x(t) + 0.5 G(t,T)' y(t) G(t,T)]' from rates model.
+"""
+function log_zero_bonds(m::QuasiGaussianModel, model_alias::String, t::ModelTime, T::AbstractVector, X::ModelState)
+    @assert alias(m) == model_alias
+    #
+    G = G_hjm(m.gaussian_model, t, T)  # (d, m) matrix with m = length(T)
+    X_ = state_variable(m, X)      # (d, p) matrix
+    Y_ = auxiliary_variable(m, X)  # (d, d, p) array
+    #
+    GyG = hcat([
+        _func_GyG(@view(G[:, k]), Y_) for k in axes(G, 2)
+    ]...)  # (p, m) matrix
+    #
+    return X_' * G .+ (0.5 .* GyG)
+end
+
+"""
+    log_compounding_factor(
+        m::QuasiGaussianModel,
+        model_alias::String,
+        t::ModelTime,
+        T1::ModelTime,
+        T2::ModelTime,
+        X::ModelState,
+        )
+
+Calculate the forward compounding factor term
+[G(t,T2) - G(t,T1)]' x(t) + 0.5 * [G(t,T2)' y(t) G(t,T2) - G(t,T1)' y(t) G(t,T1)].
+
+This is used for Libor forward rate calculation.
+"""
+function log_compounding_factor(
+    m::QuasiGaussianModel,
+    model_alias::String,
+    t::ModelTime,
+    T1::ModelTime,
+    T2::ModelTime,
+    X::ModelState,
+    )
+    #
+    @assert alias(m) == model_alias
+    #
+    G1 = G_hjm(m.gaussian_model, t, T1)  # (d,) vector
+    G2 = G_hjm(m.gaussian_model, t, T2)
+    #
+    X_ = state_variable(m, X)      # (d, p) matrix
+    Y_ = auxiliary_variable(m, X)  # (d, d, p) array
+    #
+    G1yG1 = _func_GyG(G1, Y_)  # (p,) vector
+    G2yG2 = _func_GyG(G2, Y_)  # (p,) vector
+    #
+    return X_' * (G2 .- G1) .+ (0.5 .* (G2yG2 .- G1yG1))
+end

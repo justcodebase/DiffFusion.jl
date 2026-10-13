@@ -24,7 +24,7 @@ using Test
         @test DiffFusion.volatility(ts, 10.0) == [ 80., 50., 40., ] * 1e-4
         @test DiffFusion.volatility(ts, 12.0) == [ 80., 50., 40., ] * 1e-4
         #
-        @test_throws AssertionError DiffFusion.volatility(ts, 1.5, DiffFusion.TermstructureScalar)
+        @test_throws AssertionError DiffFusion.scalar_volatility(ts, 1.5)
         @test_throws AssertionError DiffFusion.backward_flat_volatility("USD", times[2:end], values)
         @test_throws AssertionError DiffFusion.backward_flat_volatility("USD", vcat([2.0], times[2:end]), values)
         #
@@ -38,10 +38,9 @@ using Test
         #
         @test DiffFusion.alias(ts) == "USD"
         @test DiffFusion.volatility(ts, 1.5) == [ 60. ] * 1e-4
-        @test DiffFusion.volatility(ts, 1.5, DiffFusion.TermstructureScalar) == 60. * 1e-4
+        @test DiffFusion.scalar_volatility(ts, 1.5) == 60. * 1e-4
         #
         @test ts(1.5) == [ 60. ] * 1e-4
-        @test ts(1.5, DiffFusion.TermstructureScalar) == 60. * 1e-4
     end
 
     @testset "Flat volatility" begin
@@ -51,12 +50,45 @@ using Test
         #
         @test DiffFusion.alias(ts) == "USD"
         @test DiffFusion.volatility(ts, 1.5) == [ 35. ] * 1e-4
-        @test DiffFusion.volatility(ts, 1.5, DiffFusion.TermstructureScalar) == 35. * 1e-4
+        @test DiffFusion.scalar_volatility(ts, 1.5) == 35. * 1e-4
         #
         @test ts(1.5) == [ 35. ] * 1e-4
-        @test ts(1.5, DiffFusion.TermstructureScalar) == 35. * 1e-4
         #
         @test string(DiffFusion.flat_volatility( 0.01 )) == string(DiffFusion.flat_volatility("", 0.01))
+    end
+
+    @testset "Piece-wise constant properties" begin
+        times =  [ 1.0, 2.0, 5.0, 10.0 ]
+        values = [ 0.5, 1.0, 2.0, 0.5  ]
+        ts = DiffFusion.backward_flat_volatility("", times, values)
+        @test DiffFusion.is_constant(ts, 0.0, 0.5) == true
+        @test DiffFusion.is_constant(ts, 0.0, 1.0) == true
+        @test DiffFusion.is_constant(ts, 1.0, 1.0) == true
+        @test DiffFusion.is_constant(ts, 1.0, 1.5) == true
+        @test DiffFusion.is_constant(ts, 1.0, 2.0) == true
+        @test DiffFusion.is_constant(ts, 2.0, 3.0) == true
+        @test DiffFusion.is_constant(ts, 3.0, 4.0) == true
+        @test DiffFusion.is_constant(ts, 4.0, 5.0) == true
+        @test DiffFusion.is_constant(ts, 10.0, 12.0) == true
+        @test DiffFusion.is_constant(ts, 7.5, 12.5) == true
+        @test DiffFusion.is_constant(ts, 11.5, 12.5) == true
+        #
+        @test DiffFusion.is_constant(ts, 0.0, 1.5) == false
+        @test DiffFusion.is_constant(ts, 1.0, 2.5) == false
+        @test DiffFusion.is_constant(ts, 0.5, 7.5) == false
+    end
+
+    @testset "Integer as input type" begin
+        # times like [0.0, 1.0] are converted to [0, 1] by JSON3.jl
+        # this used to cause errors with DiffFusionServer
+        times =  [  1,  2,  5, 10 ]
+        values = [ 50  60  70  80 ;
+                   50  50  50  50 ;
+                   30  20  20  40 ]
+        #
+        ts = DiffFusion.backward_flat_volatility("USD", times, values)
+        @test ts.times == [ 1.0, 2.0, 5.0, 10.0 ]
+        @test ts.values == values
     end
 
 end

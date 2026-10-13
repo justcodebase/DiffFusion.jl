@@ -9,10 +9,10 @@
 A vector-valued volatility term structure with piece-wise constant
 (backward-flat) interpolation and constant extrapolation.
 """
-struct BackwardFlatVolatility <: VolatilityTermstructure
+struct BackwardFlatVolatility{T<:ModelValue} <: VolatilityTermstructure
     alias::String
-    times::AbstractVector
-    values::AbstractMatrix
+    times::Vector{ModelTime}
+    values::Matrix{T}
 end
 
 """
@@ -41,7 +41,9 @@ function backward_flat_volatility(
         @assert(values[idx] >= 0.0)
     end
     #
-    return BackwardFlatVolatility(alias, times, values)
+    times_ = [ ModelTime(t) for t in times ]
+    #
+    return BackwardFlatVolatility(alias, times_, Matrix(values))
 end
 
 """
@@ -98,17 +100,48 @@ end
 
 
 """
-    volatility(ts::BackwardFlatVolatility, t::ModelTime, result_size::TermstructureResultSize = TermstructureVector)
+    volatility(ts::BackwardFlatVolatility, t::ModelTime)
 
 Return a vector of volatilities for a given observation time t.
 """
-function volatility(ts::BackwardFlatVolatility, t::ModelTime, result_size::TermstructureResultSize = TermstructureVector)
+function volatility(ts::BackwardFlatVolatility, t::ModelTime)
     k = time_idx(ts, t)
-    if result_size == TermstructureVector
-        return @view ts.values[:,min(k, length(ts.times))]  # flat extrapolation
+    return ts.values[:,min(k, length(ts.times))]  # flat extrapolation
+end
+
+
+"""
+    scalar_volatility(ts::BackwardFlatVolatility, t::ModelTime)
+
+Return a scalar volatility (if possible).
+"""
+function scalar_volatility(ts::BackwardFlatVolatility, t::ModelTime)
+    @assert(size(ts.values)[1] == 1)  # only available for scalar vols
+    k = time_idx(ts, t)
+    return ts.values[begin, min(k, length(ts.times))]  # flat extrapolation
+end
+
+
+"""
+    is_constant(ts::BackwardFlatVolatility, s::ModelTime, t::ModelTime)
+
+Determine whether volatility values are constant on the
+intervall (s, t).
+"""
+function is_constant(ts::BackwardFlatVolatility, s::ModelTime, t::ModelTime)
+    @assert s ≤ t
+    idx_s = min(time_idx(ts, s), length(ts.times))  # capture flat extrapolation
+    idx_t = min(time_idx(ts, t), length(ts.times))
+    if idx_s == idx_t
+        return true
     end
-    if result_size == TermstructureScalar
-        @assert(size(ts.values)[1] == 1)  # only available for scalar vols
-        return ts.values[1,min(k, length(ts.times))]  # flat extrapolation
+    # handle edge cases of piece-wise constant term structures
+    if time_idx(ts, s + _ts_epsilon) == idx_t
+        return true
     end
+    if idx_s == time_idx(ts, t - _ts_epsilon)
+        return true
+    end
+    # term structure is not constant on (s, t)
+    return false
 end

@@ -1,5 +1,50 @@
 
 """
+    struct ProcessValue <: Leaf
+        obs_time::ModelTime
+        idx::Int
+        key::String
+    end
+
+The value of a process *X(t)* at observation time *t*.
+
+We allow for multi-dimensional processes.
+The `idx` element specifies the component of process *X*.
+"""
+struct ProcessValue <: Leaf
+    obs_time::ModelTime
+    idx::Int
+    key::String
+end
+
+
+"""
+    ProcessValue(obs_time::ModelTime, key::String)
+
+Derive the value of a scalar process *X(t)* at observation
+time *t*.
+"""
+function ProcessValue(obs_time::ModelTime, key::String)
+    return ProcessValue(obs_time, 1, key)
+end
+
+"""
+    at(p::ProcessValue, path::AbstractPath)
+
+Derive the process value at a given path.
+"""
+at(p::ProcessValue, path::AbstractPath) = process_value(path, p.obs_time, p.idx, p.key)
+
+
+"""
+    string(p::ProcessValue)
+
+Formatted (and shortened) output for ProcessValue payoff.
+"""
+string(p::ProcessValue) = @sprintf("X(%s, %.2f, %d)", p.key, p.obs_time, p.idx)
+
+
+"""
     struct Numeraire <: Leaf
         obs_time::ModelTime
         curve_key::String
@@ -88,6 +133,75 @@ at(p::ZeroBond, path::AbstractPath) = zero_bond(path, p.obs_time, p.maturity_tim
 Formatted (and shortened) output for ZeroBond payoff.
 """
 string(p::ZeroBond) = @sprintf("P(%s, %.2f, %.2f)", p.key, p.obs_time, p.maturity_time)
+
+"""
+    pay_time(p::ZeroBond)
+
+Specialisation of pay_time for ZeroBond payoff. The pay time is the maturity time.
+"""
+function pay_time(p::ZeroBond)
+    return p.maturity_time
+end
+
+
+"""
+    struct NonDefaultProbability <: Leaf
+        obs_time::ModelTime
+        key::String
+    end
+
+The probability of non-default until observation time *t* for a given name.
+"""
+struct NonDefaultProbability <: Leaf
+    obs_time::ModelTime
+    key::String
+end
+
+"""
+    at(p::NonDefaultProbability, path::AbstractPath)
+
+Derive the non-default probability at a given path.
+"""
+at(p::NonDefaultProbability, path::AbstractPath) = non_default_probability(path, p.obs_time, p.key)
+
+"""
+    string(p::NonDefaultProbability)
+
+Formatted (and shortened) output for NonDefaultProbability payoff.
+"""
+string(p::NonDefaultProbability) = @sprintf("Q(%s, %.2f)", p.key, p.obs_time)
+
+
+"""
+    struct SurvivalProbability <: Leaf
+        obs_time::ModelTime
+        maturity_time::ModelTime
+        key::String
+    end
+
+The probability of survival between observation time *t* and maturity time *T*
+for a given name.
+"""
+struct SurvivalProbability <: Leaf
+    obs_time::ModelTime
+    maturity_time::ModelTime
+    key::String
+end
+
+"""
+    at(p::SurvivalProbability, path::AbstractPath)
+
+Derive the survival probability at a given path.
+"""
+at(p::SurvivalProbability, path::AbstractPath) = survival_probability(path, p.obs_time, p.maturity_time, p.key)
+
+
+"""
+    string(p::SurvivalProbability)
+
+Formatted (and shortened) output for SurvivalProbability payoff.
+"""
+string(p::SurvivalProbability) = @sprintf("Q(%s, %.2f, %.2f)", p.key, p.obs_time, p.maturity_time)
 
 
 """

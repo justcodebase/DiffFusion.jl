@@ -25,7 +25,7 @@ Create a Pay object and check for consistency.
 function Pay(x::Payoff, pay_time::ModelTime)
     obs_time_x = obs_time(x)
     if pay_time < obs_time_x
-        @warn "Pay time is before observation time." pay_time obs_time_x
+        non_differentiable_warn("Pay time is before observation time.", (pay_time, obs_time_x))
     end
     return Pay(x, pay_time, true)
 end
@@ -57,6 +57,15 @@ obs_times(p::Pay) = union(obs_times(p.x), p.obs_time)
 Formatted (and shortened) output for Pay payoff.
 """
 string(p::Pay) = @sprintf("(%s @ %.2f)", string(p.x), p.obs_time)
+
+"""
+    pay_time(p::Pay)
+
+Specialisation of pay_time for Pay payoff.
+
+The pay time is the new observation time.
+"""
+pay_time(p::Pay) = p.obs_time
 
 
 """

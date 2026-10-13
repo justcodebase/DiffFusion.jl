@@ -3,8 +3,8 @@
     struct SimpleModel <: Model
         alias::String
         models::Tuple
-        state_alias
-        factor_alias
+        state_alias::Vector{String}
+        factor_alias::Vector{String}
         model_dict::Dict{String,Int}
     end
 
@@ -13,11 +13,11 @@ component models.
 
 It is supposed to be used with a `simple_simulation()` method.
 """
-struct SimpleModel <: CompositeModel
+struct SimpleModel{ModelsType<:Tuple} <: CompositeModel
     alias::String
-    models::Tuple
-    state_alias
-    factor_alias
+    models::ModelsType
+    state_alias::Vector{String}
+    factor_alias::Vector{String}
     model_dict::Dict{String,Int}
 end
 
@@ -30,7 +30,7 @@ Create a SimpleModel.
 function simple_model(m_alias::String, models::AbstractVector)
     s_alias = vcat((state_alias(cm) for cm in models)...)
     f_alias = vcat((factor_alias(cm) for cm in models)...)
-    model_dict = Dict()
+    model_dict = Dict{String,Int}()
     for (k,cm) in enumerate(models)
         model_dict[alias(cm)] = k
     end
@@ -117,12 +117,13 @@ function Sigma_T(
     )
     @assert isnothing(X) == !state_dependent_Sigma(m)
     for cm in m.models
-        @assert factor_alias(cm) == factor_alias_Sigma(cm)  # deal with general case later...
+        @assert state_alias(cm) == state_alias_Sigma(cm)  # deal with general case later...
+        @assert factor_alias(cm) == factor_alias_Sigma(cm)
     end
     Sigma_T_s = ( Sigma_T(cm,s,t,X) for cm in m.models )
-    N = length(state_alias(m))
-    M = length(factor_alias(m))
-    f(u) = begin
+    M = length(state_alias_Sigma(m))
+    N = length(factor_alias_Sigma(m))
+    f = (u) -> begin
         I = Int[]
         J = Int[]
         V = zeros(0)
@@ -133,11 +134,9 @@ function Sigma_T(
             I = vcat(I, I_)
             J = vcat(J, J_)
             V = vcat(V, V_)
-            idx_i += length(state_alias(cm))
+            idx_i += length(state_alias_Sigma(cm))
             idx_j += length(factor_alias_Sigma(cm))
         end
-        M = length(state_alias(m))
-        N = length(factor_alias_Sigma(m))
         sigma_T = sparse(I, J, V, M, N)
         return sigma_T
     end

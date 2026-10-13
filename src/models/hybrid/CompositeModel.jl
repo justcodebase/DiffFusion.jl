@@ -8,8 +8,8 @@ A `CompositeModel` represents a collection of (coupled) component models.
 
     alias::String
     models::Tuple
-    state_alias
-    factor_alias
+    state_alias::AbstractVector
+    factor_alias::AbstractVector
     model_dict::Dict{String,Int}
 
 For concrete types, see `SimpleModel` and `DiagonalModel`.
@@ -41,6 +41,30 @@ mehods that require smooth integrand functions.
 function parameter_grid(m::CompositeModel)
     return parameter_grid(m.models)
 end
+
+
+
+"""
+    process_value(m::CompositeModel, model_alias::String, t::ModelTime, idx::Int, X::ModelState)
+
+Calculate the value of a stochastic process at a given time and index.
+
+If the `model_alias` does not match the alias of the composite model, we delegate to the
+component models.
+
+We allow for multi-dimensional processes. The index `idx` is used to select the
+appropriate component of the process. Scalar processes are represented by a single
+component with `idx=1`.
+"""
+function process_value(m::CompositeModel, model_alias::String, t::ModelTime, idx::Int, X::ModelState)
+    if alias(m) == model_alias
+        @assert 0 < idx && idx ≤ length(state_alias(m))
+        return X(state_alias(m)[idx])
+    end
+    # delegate to the component model
+    return process_value(m.models[m.model_dict[model_alias]], model_alias, t, idx, X)
+end
+
 
 """
     log_asset(m::CompositeModel, alias::String, t::ModelTime, X::ModelState)
@@ -240,7 +264,7 @@ function asset_variance(
         return 0.0
     end
     if !state_dependent_Sigma(m)
-        # We need to make sure that the Sigma_T(...) call in covaiance(...)
+        # We need to make sure that the Sigma_T(...) call in covariance(...)
         # method can be executed.
         X = nothing
     end
@@ -328,6 +352,15 @@ function state_dependent_H(m::CompositeModel)
 end
 
 """
+    state_alias_Sigma(m::CompositeModel)
+
+Return a list of state alias strings required for (Sigma(u)' Gamma Sigma(u)) calculation.
+
+This is a default behaviour. It is supposed to be overwritten for derived Model types.
+"""
+state_alias_Sigma(m::CompositeModel) = state_alias(m::CompositeModel)
+
+"""
     factor_alias_Sigma(m::CompositeModel)
 
 Return a list of factor alias strings required for (Sigma(u)^T Gamma Sigma(u)) calculation.
@@ -351,7 +384,7 @@ end
 """
     _coo_matrix(A::AbstractMatrix, i_offset::Integer = 0, j_offset::Integer = 0)
 
-Return the COO format for a matrix A.
+Return the COO format for a matrix A. Default implementation.
 
 This method is used in `SimpleModel` `H_T(...)` and `Sigma_T(...)` calculation.
 """
@@ -360,4 +393,16 @@ function _coo_matrix(A::AbstractMatrix, i_offset::Integer = 0, j_offset::Integer
     I = vec([ i for i in (1+i_offset):(m+i_offset), j in (1+j_offset):(n+j_offset) ])
     J = vec([ j for i in (1+i_offset):(m+i_offset), j in (1+j_offset):(n+j_offset) ])
     return I, J, vec(A)
+end
+
+"""
+    _coo_matrix(A::SparseMatrixCSC, i_offset::Integer = 0, j_offset::Integer = 0)
+
+Return the COO format for a sparse matrix A.
+
+This method is used in `SimpleModel` `H_T(...)` and `Sigma_T(...)` calculation.
+"""
+function _coo_matrix(A::SparseMatrixCSC, i_offset::Integer = 0, j_offset::Integer = 0)
+    I, J, V = findnz(A)
+    return I .+ i_offset, J .+ j_offset, V
 end

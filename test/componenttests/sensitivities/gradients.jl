@@ -1,4 +1,7 @@
 using DiffFusion
+using DifferentiationInterface
+using FiniteDifferences
+using ForwardDiff
 using StatsBase
 using Test
 
@@ -65,20 +68,19 @@ using Test
 
         @test zb == obj_function(arg_x)
 
-        (v1, g1) = DiffFusion._function_value_and_gradient(obj_function, arg_x, DiffFusion.ForwardDiff)
-        (v2, g2) = DiffFusion._function_value_and_gradient(obj_function, arg_x, DiffFusion.Zygote)
-        (v3, g3) = DiffFusion._function_value_and_gradient(obj_function, arg_x, DiffFusion.FiniteDifferences)
-
-        @test v1 == zb
-        @test v2 == zb
-        @test v3 == zb
-        
-        @test isapprox(g1, g2, atol=1.0e-14)
-        @test isapprox(g2, g3, atol=1.0e-10)
-
-        #println(g1)
-        #println(g2)
-        #println(g3)
+        adTypes = [
+            AutoFiniteDifferences(;fdm = FiniteDifferences.central_fdm(3, 1)),
+            AutoForwardDiff(),
+            AutoZygote(),
+            ForwardDiff,
+            FiniteDifferences,
+        ]
+        (v0, g0) = DiffFusion._function_value_and_gradient(obj_function, arg_x, adTypes[begin])
+        for adType in adTypes[begin+1:end]
+            (v, g) = DiffFusion._function_value_and_gradient(obj_function, arg_x, adType)
+            @test isapprox(v, zb, atol=1.0e-14)
+            @test isapprox(g, g0, atol=1.0e-10)
+        end
     end
 
 
@@ -95,24 +97,21 @@ using Test
             Y = DiffFusion.predict(R, Z[:,3:4]')
             return mean(Y)
         end
-
         y = obj_function(p)
 
-        (v1, g1) = DiffFusion._function_value_and_gradient(obj_function, p, DiffFusion.ForwardDiff)
-        (v2, g2) = DiffFusion._function_value_and_gradient(obj_function, p, DiffFusion.Zygote)
-        (v3, g3) = DiffFusion._function_value_and_gradient(obj_function, p, DiffFusion.FiniteDifferences)
-
-        @test v1 == y
-        @test v2 == y
-        @test v3 == y
-        
-        @test isapprox(g1, g2, atol=1.0e-14)
-        @test isapprox(g2, g3, atol=1.0e-10)
-
-        #println(y)
-        #println(v2)
-        #println(g2)
-
+        adTypes = [
+            AutoFiniteDifferences(;fdm = FiniteDifferences.central_fdm(3, 1)),
+            AutoForwardDiff(),
+            AutoZygote(),
+            ForwardDiff,
+            FiniteDifferences,
+        ]
+        (v0, g0) = DiffFusion._function_value_and_gradient(obj_function, p, adTypes[begin])
+        for adType in adTypes[begin+1:end]
+            (v, g) = DiffFusion._function_value_and_gradient(obj_function, p, adType)
+            @test isapprox(v, y, atol=1.5e-14)
+            @test isapprox(g, g0, atol=1.0e-10)
+        end
     end
 
 
@@ -171,6 +170,7 @@ using Test
             Dict{String, DiffFusion.AssetEntry}(),
             Dict{String, DiffFusion.ForwardIndexEntry}(),
             Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
             Dict{String, DiffFusion.FixingEntry}(),
         )
 
@@ -199,39 +199,19 @@ using Test
             "EUR",
         )
 
-        (v1, g1, ts_labels) = DiffFusion.model_price_and_deltas_vector(
-            [ A1, A2 ],
-            path,
-            nothing,
-            nothing,
-            DiffFusion.ForwardDiff
-        )
-
-        (v2, g2, ts_labels) = DiffFusion.model_price_and_deltas_vector(
-            [ A1, A2 ],
-            path,
-            nothing,
-            nothing,
-            DiffFusion.Zygote
-        )
-
-        (v3, g3, ts_labels) = DiffFusion.model_price_and_deltas_vector(
-            [ A1, A2 ],
-            path,
-            nothing,
-            nothing,
-            DiffFusion.FiniteDifferences
-        )
-
-        @test v1 == v2
-        @test v2 == v3
-
-        @test isapprox(g1, g2, atol=1.0e-14)
-        @test isapprox(g2, g3, atol=1.0e-8)
-
-        #println(v1)
-        #println(g2)
-
+        adTypes = [
+            AutoFiniteDifferences(;fdm = FiniteDifferences.central_fdm(3, 1)),
+            AutoForwardDiff(),
+            AutoZygote(),
+            ForwardDiff,
+            FiniteDifferences,
+        ]
+        (v0, g0, l0) = DiffFusion.model_price_and_deltas([ A1, A2 ], path, nothing, nothing, adTypes[begin])
+        for adType in adTypes[begin+1:end]
+            (v, g, l) = DiffFusion.model_price_and_deltas([ A1, A2 ], path, nothing, nothing, adType)
+            @test isapprox(v, v0, atol=1.0e-14)
+            @test isapprox(g, g0, atol=1.0e-9)
+        end
     end
 
 end

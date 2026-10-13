@@ -2,25 +2,25 @@
 """
     struct CevAssetModel <: AssetModel
         alias::String
-        sigma_x::BackwardFlatVolatility
-        skew_x::BackwardFlatParameter
-        state_alias::AbstractVector
-        factor_alias::AbstractVector
-        correlation_holder::CorrelationHolder
+        sigma_x::BackwardFlatVolatility{ModelValue}
+        skew_x::BackwardFlatParameter{ModelValue}
+        state_alias::Vector{String}
+        factor_alias::Vector{String}
+        correlation_holder::CorrelationHolder{ModelValue}
         quanto_model::Union{AssetModel, Nothing}
     end
 
 A `CevAssetModel` is a model for simulating an asset price in a
 Constant Elasticity of Variance model.
 """
-struct CevAssetModel <: AssetModel
+struct CevAssetModel{T1<:ModelValue, T2<:ModelValue, T3<:Union{AssetModel, Nothing}} <: AssetModel
     alias::String
-    sigma_x::BackwardFlatVolatility
-    skew_x::BackwardFlatParameter
-    state_alias::AbstractVector
-    factor_alias::AbstractVector
-    correlation_holder::CorrelationHolder
-    quanto_model::Union{AssetModel, Nothing}
+    sigma_x::BackwardFlatVolatility{T1}
+    skew_x::BackwardFlatParameter{T1}
+    state_alias::Vector{String}
+    factor_alias::Vector{String}
+    correlation_holder::CorrelationHolder{T2}
+    quanto_model::T3
 end
 
 
@@ -69,7 +69,7 @@ end
 
 Return whether Theta requires a state vector input X.
 """
-state_dependent_Theta(m::CevAssetModel) = true
+state_dependent_Theta(m::CevAssetModel) = true  # COV_EXCL_LINE
 
 """
     state_alias_H(m::CevAssetModel)
@@ -83,7 +83,14 @@ state_alias_H(m::CevAssetModel) = state_alias(m)
 
 Return whether H requires a state vector input X.
 """
-state_dependent_H(m::CevAssetModel) = false
+state_dependent_H(m::CevAssetModel) = false  # COV_EXCL_LINE
+
+"""
+    state_alias_Sigma(m::CevAssetModel)
+
+Return a list of state alias strings required for (Sigma(u)' Gamma Sigma(u)) calculation.
+"""
+state_alias_Sigma(m::CevAssetModel) = state_alias(m::CevAssetModel)
 
 """
     factor_alias_Sigma(m::CevAssetModel)
@@ -97,7 +104,21 @@ factor_alias_Sigma(m::CevAssetModel) = factor_alias(m)
 
 Return whether Sigma requires a state vector input X.
 """
-state_dependent_Sigma(m::CevAssetModel) = true
+state_dependent_Sigma(m::CevAssetModel) = true  # COV_EXCL_LINE
+
+"""
+An `AssetVolatility` for a `CevAssetModel`.
+"""
+struct CevAssetVolatility{T1<:ModelValue, T2<:ModelValue, T3<:ModelValue} <: AssetVolatility
+    sigma_x::BackwardFlatVolatility{T1}
+    skew_x::BackwardFlatParameter{T2}
+    x_s::T3
+end
+
+"""
+Evaluate `CevAssetVolatility` at time `t`.
+"""
+(av::CevAssetVolatility)(t::ModelTime) = scalar_volatility(av.sigma_x, t) * exp(scalar_value(av.skew_x, t) * av.x_s)
 
 
 """
@@ -119,8 +140,7 @@ function asset_volatility(
     @assert isnothing(X) == !state_dependent_Sigma(m)
     @assert size(X.X)[2] == 1  # require a single state
     x_s = X(state_alias(m)[1])[1]  # this should be a scalar
-    sigma(u) = m.sigma_x(u, TermstructureScalar) * exp(m.skew_x(u, TermstructureScalar) * x_s)
-    return sigma
+    return CevAssetVolatility(m.sigma_x, m.skew_x, x_s)
 end
 
 # Model functions for CEV model duplicate code from LognormalModel.
@@ -197,7 +217,7 @@ function Sigma_T(
     @assert isnothing(X) == !state_dependent_Sigma(m)
     @assert size(X.X)[2] == 1  # require a single state
     sigma = asset_volatility(m, s, t, X)
-    f(u) = sigma(u) * ones(1,1)
+    f = (u) -> sigma(u) * ones(1,1)
     return f
 end
 
@@ -229,9 +249,9 @@ function simulation_parameters(
     s::ModelTime,
     t::ModelTime,
     )
-    f_sigma(u) = m.sigma_x(u, TermstructureScalar)^2
+    f_sigma(u) = scalar_volatility(m.sigma_x, u)^2
     sigma_av = sqrt(_scalar_integral(f_sigma, s, t, parameter_grid(m)) / (t -s))
-    f_skew(u) = m.skew_x(u, TermstructureScalar)
+    f_skew(u) = scalar_value(m.skew_x, u)
     skew_av = _scalar_integral(f_skew, s, t, parameter_grid(m))  / (t -s)
     return (
         sigma_av = sigma_av,

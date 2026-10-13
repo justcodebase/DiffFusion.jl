@@ -1,6 +1,15 @@
 
 
 """
+    struct DiagonalModel <: CompositeModel
+        alias::String
+        models::Tuple
+        state_alias::Vector{String}
+        factor_alias::Vector{String}
+        state_alias_Sigma::Vector{String}
+        model_dict::Dict{String,Int}
+    end
+
 `DiagonalModel` represents a collection of (coupled) component models.
 For the component models we assume that the models are either
 state-independent models or diagonal models in the sense that the
@@ -10,11 +19,12 @@ For state-independent models we avoid repeated Theta and Sigma calculation.
 
 The model is used as a hybrid model for simulation and payoff evaluation.
 """
-struct DiagonalModel <: CompositeModel
+struct DiagonalModel{ModelsType<:Tuple} <: CompositeModel
     alias::String
-    models::Tuple
-    state_alias
-    factor_alias
+    models::ModelsType
+    state_alias::Vector{String}
+    factor_alias::Vector{String}
+    state_alias_Sigma::Vector{String}
     model_dict::Dict{String,Int}
 end
 
@@ -26,12 +36,28 @@ Create a DiagonalModel.
 function diagonal_model(m_alias::String, models::AbstractVector)
     s_alias = vcat((state_alias(cm) for cm in models)...)
     f_alias = vcat((factor_alias(cm) for cm in models)...)
-    model_dict = Dict()
+    s_alias_Sigma = vcat((state_alias_Sigma(cm) for cm in models)...)
+    model_dict = Dict{String,Int}()
     for (k,cm) in enumerate(models)
         model_dict[alias(cm)] = k
     end
-    return DiagonalModel(m_alias, Tuple(cm for cm in models), s_alias, f_alias, model_dict)
+    return DiagonalModel(
+        m_alias,
+        Tuple(cm for cm in models),
+        s_alias,
+        f_alias,
+        s_alias_Sigma,
+        model_dict,
+    )
 end
+
+
+"""
+    state_alias_Sigma(m::DiagonalModel)
+
+Return a list of state alias strings required for (Sigma(u)' Gamma Sigma(u)) calculation.
+"""
+state_alias_Sigma(m::DiagonalModel) = m.state_alias_Sigma
 
 
 """
@@ -117,16 +143,13 @@ function Sigma_T(
     )
     @assert size(X.X)[2] == 1  # require a single state
     @assert isa(X.params, NamedTuple)
-    for cm in m.models
-        @assert factor_alias(cm) == factor_alias_Sigma(cm)  # deal with general case later...
-    end
     Sigma_T_s = (
         (!state_dependent_Sigma(cm)) ? (Sigma_T(cm, s, t)) : (Sigma_T(cm, s, t, ModelState(X.X, X.idx, P)))
         for (cm, P) in zip(m.models, X.params.P)
-        )
-    N = length(state_alias(m))
-    M = length(factor_alias(m))
-    f(u) = begin
+    )
+    M = length(state_alias_Sigma(m))
+    N = length(factor_alias_Sigma(m))
+    f = (u) -> begin
         I = Int[]
         J = Int[]
         V = zeros(0)
@@ -137,11 +160,9 @@ function Sigma_T(
             I = vcat(I, I_)
             J = vcat(J, J_)
             V = vcat(V, V_)
-            idx_i += length(state_alias(cm))
+            idx_i += length(state_alias_Sigma(cm))
             idx_j += length(factor_alias_Sigma(cm))
         end
-        M = length(state_alias(m))
-        N = length(factor_alias_Sigma(m))
         sigma_T = sparse(I, J, V, M, N)
         return sigma_T
     end

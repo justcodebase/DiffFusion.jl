@@ -11,12 +11,15 @@ using Test
         @test_throws ErrorException DiffFusion.zero_bond(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.zero_bonds(NoPath(), 5.0, [8.0, 10.0], "Std")
         @test_throws ErrorException DiffFusion.compounding_factor(NoPath(), 5.0, 8.0, 10.0, "Std")
+        @test_throws ErrorException DiffFusion.non_default_probability(NoPath(), 5.0, "Std")
+        @test_throws ErrorException DiffFusion.survival_probability(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.asset(NoPath(), 5.0, "Std")
         @test_throws ErrorException DiffFusion.forward_asset(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.forward_asset_and_zero_bonds(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.forward_index(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.future_index(NoPath(), 5.0, 10.0, "Std")
         @test_throws ErrorException DiffFusion.fixing(NoPath(), 5.0, "Std")
+        @test_throws ErrorException DiffFusion.process_value(NoPath(), 5.0, 1, "Std")
         @test_throws ErrorException DiffFusion.length(NoPath())
         # not yet implemented...
         @test_throws ErrorException DiffFusion.asset_convexity_adjustment(NoPath(), 5.0, 6.0, 7.0, 8.0, "Std")
@@ -75,7 +78,7 @@ end
     # valuation context with deterministic dividend yield
 
     context = DiffFusion.Context("Std",
-        DiffFusion.NumeraireEntry("USD", "USD", Dict(_empty_key => "USD")),
+        DiffFusion.NumeraireEntry("USD", "USD", Dict(_empty_key => "USD", "OIS" => "USD")),
         Dict{String, DiffFusion.RatesEntry}([
             ("USD",   DiffFusion.RatesEntry("USD", "USD", Dict(_empty_key => "USD", "OIS" => "USD", "NO" => "ZERO"))),
             ("EUR",   DiffFusion.RatesEntry("EUR", "EUR", Dict(_empty_key => "EUR", "NO" => "ZERO"))),
@@ -91,6 +94,9 @@ end
         ]),
         Dict{String, DiffFusion.FutureIndexEntry}([
             ("NIK", DiffFusion.FutureIndexEntry("NIK", "NIK", "NIK-FUT")),
+        ]),
+        Dict{String, DiffFusion.ProcessEntry}([
+            ("EUR-USD", DiffFusion.ProcessEntry("EUR-USD", "EUR-USD", "EUR-USD")),
         ]),
         Dict{String, DiffFusion.FixingEntry}([
             ("SOFR", DiffFusion.FixingEntry("SOFR", "USD-SOFR-Fixings")),
@@ -128,6 +134,7 @@ end
             ]),
             Dict{String, DiffFusion.ForwardIndexEntry}(),
             Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
             Dict{String, DiffFusion.FixingEntry}(),
         )
         @test_throws AssertionError DiffFusion.path(sim, ts, wrong_cxt)
@@ -145,6 +152,7 @@ end
             ]),
             Dict{String, DiffFusion.ForwardIndexEntry}(),
             Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
             Dict{String, DiffFusion.FixingEntry}(),
         )
         @test_throws AssertionError DiffFusion.path(sim, ts, wrong_cxt)
@@ -162,6 +170,7 @@ end
             ]),
             Dict{String, DiffFusion.ForwardIndexEntry}(),
             Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
             Dict{String, DiffFusion.FixingEntry}(),
         )
         @test_throws AssertionError DiffFusion.path(sim, ts, wrong_cxt)
@@ -179,6 +188,7 @@ end
             ]),
             Dict{String, DiffFusion.ForwardIndexEntry}(),
             Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
             Dict{String, DiffFusion.FixingEntry}([
                 ("USD-SOFR", DiffFusion.FixingEntry("USD-SOFR", "USD-SOFR-Fixings")),
             ]),
@@ -238,7 +248,12 @@ end
     @testset "Stochastic model functions." begin
         p = DiffFusion.path(sim, ts, context)
         t = 2.0
+        #
+        @test DiffFusion.process_value(p, t, 1, "EUR-USD")  == (1.25 + 1.0) * ones(5)
+        #
         @test isapprox(DiffFusion.numeraire(p, t, "USD"), exp(1.0 + 0.03*t) * ones(5), atol=1.0e-15)
+        @test isapprox(DiffFusion.numeraire(p, t, "USD:OIS"), exp(1.0 + 0.03*t) * ones(5), atol=1.0e-15)
+        @test isapprox(DiffFusion.numeraire(p, t, "USD:OIS-OIS"), exp(1.0) * ones(5), atol=1.0e-15)
         #
         @test isapprox(DiffFusion.bank_account(p, t, "USD"), exp(1.0 + 0.03*t) * ones(5), atol=1.0e-15)
         @test isapprox(DiffFusion.bank_account(p, t, "EUR"), exp(1.0 + 0.02*t) * ones(5), atol=1.0e-15)
@@ -292,6 +307,13 @@ end
         @test_throws KeyError DiffFusion.zero_bond(p, t, T, "USD:LIB")
         @test_throws KeyError DiffFusion.zero_bond(p, t, T, "USD:OIS-LIB3M")
         @test_throws KeyError DiffFusion.zero_bond(p, t, T, "SXE50:OIS")
+        #
+        q0  = DiffFusion.non_default_probability(p, t, "USD")
+        q1  = DiffFusion.survival_probability(p, t, T, "USD")
+        cmp = DiffFusion.bank_account(p, t, "USD")
+        df1 = DiffFusion.zero_bond(p, t, T, "USD")
+        @test isapprox(q0, 1.0 ./ cmp, atol=1.0e-14)
+        @test isapprox(q1, df1, atol=1.0e-14)
         #
         X = zeros(length(DiffFusion.state_alias(m)), n_paths, length(times))
         sim = DiffFusion.Simulation(m, times, X, nothing)  # simplify calculations
@@ -373,6 +395,9 @@ end
             Dict{String, DiffFusion.FutureIndexEntry}([
                 ("NIK", DiffFusion.FutureIndexEntry("NIK", nothing, "NIK-FUT")),
             ]),
+            Dict{String, DiffFusion.ProcessEntry}([
+                ("EUR-USD", DiffFusion.ProcessEntry("EUR-USD", nothing, "EUR-USD")),
+            ]),
             Dict{String, DiffFusion.FixingEntry}([
                 ("SOFR", DiffFusion.FixingEntry("SOFR", "USD-SOFR-Fixings")),
             ]),
@@ -381,6 +406,9 @@ end
         p = DiffFusion.path(det_sim, ts, det_context)
         t = 2.0
         T = 5.0
+        #
+        @test DiffFusion.process_value(p, t, 1, "EUR-USD") == 1.25 * ones(1)
+        #
         @test isapprox(DiffFusion.numeraire(p, t, "USD"), exp(0.03*t) * ones(1), atol=1.0e-15)
         #
         @test isapprox(DiffFusion.bank_account(p, t, "USD"), exp(0.03*t) * ones(1), atol=1.0e-15)
@@ -425,5 +453,52 @@ end
         @test DiffFusion.swap_rate_variance(p, 1.0, 2.0, [2.0, 3.0], [1.0], "EUR") == zeros(1)
         @test DiffFusion.forward_rate_variance(p, 1.0, 2.0, 2.0, 3.0, "USD") == zeros(1)
         @test DiffFusion.asset_variance(p, 1.0, 2.0, "EUR-USD") == zeros(1)
+    end
+
+    @testset "Forward asset special cases." begin
+        t = 2.0
+        T = 5.0
+        #
+        context = DiffFusion.Context("Std",
+            DiffFusion.NumeraireEntry("USD", "USD", Dict(_empty_key => "USD")),
+            Dict{String, DiffFusion.RatesEntry}([
+                ("USD",   DiffFusion.RatesEntry("USD", "USD", Dict(_empty_key => "USD"))),
+                ("EUR",   DiffFusion.RatesEntry("EUR", "EUR", Dict(_empty_key => "EUR"))),
+                #
+                ("USD_NULL",   DiffFusion.RatesEntry("USD", nothing, Dict(_empty_key => "USD"))),
+                ("EUR_NULL",   DiffFusion.RatesEntry("EUR", nothing, Dict(_empty_key => "EUR"))),
+            ]),
+            Dict{String, DiffFusion.AssetEntry}([
+                ("DK_MODEL", DiffFusion.AssetEntry("EUR-USD", nothing, "USD", "EUR", "EUR-USD", Dict(_empty_key => "USD"), Dict(_empty_key => "EUR"))),
+                ("ST_DIV_1", DiffFusion.AssetEntry("EUR-USD", nothing, nothing, "EUR", "EUR-USD", Dict(_empty_key => "USD"), Dict(_empty_key => "EUR"))),
+                ("ST_DIV_2", DiffFusion.AssetEntry("EUR-USD", "EUR-USD", nothing, "EUR", "EUR-USD", Dict(_empty_key => "USD"), Dict(_empty_key => "EUR"))),
+                ("RATES", DiffFusion.AssetEntry("EUR-USD", nothing, "USD", nothing, "EUR-USD", Dict(_empty_key => "USD"), Dict(_empty_key => "EUR"))),
+            ]),
+            Dict{String, DiffFusion.ForwardIndexEntry}(),
+            Dict{String, DiffFusion.FutureIndexEntry}(),
+            Dict{String, DiffFusion.ProcessEntry}(),
+            Dict{String, DiffFusion.FixingEntry}(),
+        )
+        p = DiffFusion.path(sim, ts, context)
+        #
+        S_t = DiffFusion.asset(p, t, "DK_MODEL")
+        P_d = DiffFusion.zero_bond(p, t, T, "USD")
+        P_f = DiffFusion.zero_bond(p, t, T, "EUR")
+        @test isapprox(DiffFusion.forward_asset(p, t, T, "DK_MODEL"), S_t .* P_f ./ P_d, atol=5.0e-15)
+        #
+        S_t = DiffFusion.asset(p, t, "ST_DIV_1")
+        P_d = DiffFusion.zero_bond(p, t, T, "USD_NULL")
+        P_f = DiffFusion.zero_bond(p, t, T, "EUR")
+        @test isapprox(DiffFusion.forward_asset(p, t, T, "ST_DIV_1"), S_t .* P_f ./ P_d, atol=5.0e-15)
+        #
+        S_t = DiffFusion.asset(p, t, "ST_DIV_2")
+        P_d = DiffFusion.zero_bond(p, t, T, "USD_NULL")
+        P_f = DiffFusion.zero_bond(p, t, T, "EUR")
+        @test isapprox(DiffFusion.forward_asset(p, t, T, "ST_DIV_2"), S_t .* P_f ./ P_d, atol=5.0e-15)
+        #
+        S_t = DiffFusion.asset(p, t, "RATES")
+        P_d = DiffFusion.zero_bond(p, t, T, "USD")
+        P_f = DiffFusion.zero_bond(p, t, T, "EUR_NULL")
+        @test isapprox(DiffFusion.forward_asset(p, t, T, "RATES"), S_t .* P_f ./ P_d, atol=5.0e-15)
     end
 end

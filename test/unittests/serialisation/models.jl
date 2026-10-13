@@ -221,6 +221,246 @@ using YAML
         end
     end
 
+    @testset "QuasiGaussianMultiFactorModel (de-)serialisation" begin
+        models = setup_models(ch_full)
+
+        sigma_min = 1.0e-4
+        sigma_max = 500. * 1.0e-4
+        ou_model = DiffFusion.ornstein_uhlenbeck_model(
+            "OU",
+            DiffFusion.flat_parameter("", 0.10),   # chi
+            DiffFusion.flat_volatility("", 0.20),  # sigma_x
+        )
+
+        slope_d_dom = DiffFusion.flat_parameter([ 10., 10., 10. ] .* (-1.e-2) )
+        slope_u_dom = DiffFusion.flat_parameter([ 15., 15., 15. ] .* (1.e-2) )
+        slope_d_for = DiffFusion.flat_parameter([ 10., 10., ] .* (-1.e-2) )
+        slope_u_for = DiffFusion.flat_parameter([ 15., 15., ] .* (1.e-2) )
+
+        qg_model_dom = DiffFusion.quasi_gaussian_multi_factor_model(
+            models[1], slope_d_dom, slope_u_dom, sigma_min, sigma_max, ou_model, exp
+        )
+        qg_model_for = DiffFusion.quasi_gaussian_multi_factor_model(
+            models[3], slope_d_for, slope_u_for, sigma_min, sigma_max, nothing, nothing
+        )
+
+        ref_dict = Dict(
+            "EUR-USD" => models[2],
+            "OU" => ou_model,
+            "One" => ch_one,
+            "Full" => ch_full,
+            "exp" => exp,
+        )
+
+        s = DiffFusion.serialise(qg_model_dom)
+        d = OrderedDict(
+            "typename" => "DiffFusion.QuasiGaussianMultiFactorModel",
+            "constructor" => "quasi_gaussian_multi_factor_model",
+            "alias" => "USD",
+            "delta" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[1.0], [7.0], [15.0]],
+                ),
+            "chi" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.01], [0.1], [0.3]],
+                ),
+            "sigma_f" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatVolatility",
+                "constructor" => "BackwardFlatVolatility",
+                "alias" => "USD",
+                "times" => [0.0],
+                "values" => [[0.005], [0.006], [0.007]]
+                ),
+            "slope_d" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[-0.1], [-0.1], [-0.1]]
+                ),
+            "slope_u" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.15], [0.15], [0.15]]
+                ),
+            "sigma_min" => 0.0001,
+            "sigma_max" => 0.0500,
+            "correlation_holder" => "{Full}",
+            "quanto_model" => "nothing",
+            "scaling_type" => OrderedDict{String, Any}(
+                "typename"    => "DiffFusion.BenchmarkTimesScaling",
+                "constructor" => "BenchmarkTimesScaling",
+                "enumeration" => 0,
+            ),
+            "volatility_model" => "{OU}",
+            "volatility_function" => "{exp}",
+        )
+        o = DiffFusion.deserialise(d, ref_dict)
+        if VERSION >= v"1.7" # equality tests fail with Julia 1.6
+            @test s == d
+            @test string(o) == string(qg_model_dom)
+        end
+
+        s = DiffFusion.serialise(qg_model_for)
+        d = OrderedDict(
+            "typename" => "DiffFusion.QuasiGaussianMultiFactorModel",
+            "constructor" => "quasi_gaussian_multi_factor_model",
+            "alias" => "EUR",
+            "delta" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[1.0], [10.0]],
+                ),
+            "chi" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.01], [0.15]],
+                ),
+            "sigma_f" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatVolatility",
+                "constructor" => "BackwardFlatVolatility",
+                "alias" => "EUR",
+                "times" => [0.0],
+                "values" => [[0.008], [0.009000000000000001]],
+                ),
+            "slope_d" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[-0.1], [-0.1]]
+                ),
+            "slope_u" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.15], [0.15]]
+                ),
+            "sigma_min" => 0.0001,
+            "sigma_max" => 0.0500,
+            "correlation_holder" => "{Full}",
+            "quanto_model" => "{EUR-USD}",
+            "scaling_type" => OrderedDict{String, Any}(
+                "typename"    => "DiffFusion.BenchmarkTimesScaling",
+                "constructor" => "BenchmarkTimesScaling",
+                "enumeration" => 0,
+            ),
+            "volatility_model" => "nothing",
+            "volatility_function" => "nothing",
+        )
+        o = DiffFusion.deserialise(d, ref_dict)
+        if VERSION >= v"1.7" # equality tests fail with Julia 1.6
+            @test s == d
+            @test string(o) == string(qg_model_for)
+        end
+    end
+
+
+    @testset "QuasiGaussianShortRateModel (de-)serialisation" begin
+        chi = DiffFusion.flat_parameter(0.03)
+        sigma_f = DiffFusion.flat_volatility(0.01)
+        volatility_function = DiffFusion.GaussianShortRateModelFunction()
+        model = DiffFusion.quasi_gaussian_short_rate_model(
+            "Std",
+            chi,
+            sigma_f,
+            nothing,
+            volatility_function,
+        )
+        s = DiffFusion.serialise(model)
+        d = OrderedDict(
+            "typename" => "DiffFusion.QuasiGaussianShortRateModel",
+            "constructor" => "quasi_gaussian_short_rate_model",
+            "alias" => "Std",
+            "chi" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.03]],
+                ),
+            "sigma_f" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatVolatility",
+                "constructor" => "BackwardFlatVolatility",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.01]],
+                ),
+            "quanto_model" => "nothing",
+            "volatility_function" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.GaussianShortRateModelFunction",
+                "constructor" => "GaussianShortRateModelFunction",
+            ),
+        )
+        o = DiffFusion.deserialise(d, Dict())
+        @test s == d
+        @test string(o) == string(model)
+        #
+        sigma_fx = DiffFusion.flat_volatility("EUR-USD", 0.15)
+        fx_model = DiffFusion.lognormal_asset_model("EUR-USD", sigma_fx, ch_one, nothing)
+        volatility_function = DiffFusion.CirShortRateModelFunction(
+            DiffFusion.flat_forward(0.03),
+            0.0001,
+        )
+        model = DiffFusion.quasi_gaussian_short_rate_model(
+            "Std",
+            chi,
+            sigma_f,
+            fx_model,
+            volatility_function,
+        )
+        s = DiffFusion.serialise(model)
+        d = OrderedDict(
+            "typename" => "DiffFusion.QuasiGaussianShortRateModel",
+            "constructor" => "quasi_gaussian_short_rate_model",
+            "alias" => "Std",
+            "chi" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.03]],
+                ),
+            "sigma_f" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatVolatility",
+                "constructor" => "BackwardFlatVolatility",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.01]],
+                ),
+            "quanto_model" => "{EUR-USD}",
+            "volatility_function" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.CirShortRateModelFunction",
+                "constructor" => "CirShortRateModelFunction",
+                "ts" => OrderedDict{String, Any}(
+                    "typename" => "DiffFusion.FlatForward",
+                    "constructor" => "FlatForward",
+                    "alias" => "",
+                    "rate" => 0.03,
+                ),
+                "min_value" => 0.0001,
+            ),
+        )
+        o = DiffFusion.deserialise(d, Dict("EUR-USD" => fx_model))
+        @test s == d
+        @test string(o) == string(model)
+    end
+
+
     @testset "LognormalAssetModel (de-)serialisation." begin
         models = setup_models(ch_full)
         ref_dict = Dict(
@@ -336,6 +576,40 @@ using YAML
         o = DiffFusion.deserialise(d, ref_dict)
         @test s == d
         @test string(o) == string(m)
+    end
+
+    @testset "OrnsteinUhlenbeckModel (de-)serialisation." begin
+        χ = DiffFusion.flat_parameter(0.50)
+        σ = DiffFusion.flat_volatility(0.15)
+        m = DiffFusion.ornstein_uhlenbeck_model("OU", χ, σ)
+        #
+        ref_dict = Dict()
+        s = DiffFusion.serialise(m)
+        d = OrderedDict(
+            "typename" => "DiffFusion.OrnsteinUhlenbeckModel",
+            "constructor" => "ornstein_uhlenbeck_model",
+            "alias" => "OU",
+            "chi" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatParameter",
+                "constructor" => "BackwardFlatParameter",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.50]]
+                ),
+            "sigma_x" => OrderedDict{String, Any}(
+                "typename" => "DiffFusion.BackwardFlatVolatility",
+                "constructor" => "BackwardFlatVolatility",
+                "alias" => "",
+                "times" => [0.0],
+                "values" => [[0.15]]
+                ),
+        )
+        o = DiffFusion.deserialise(d, ref_dict)
+        @test s == d
+        @test string(o) == string(m)
+
+
+
     end
 
     @testset "SimpleModel (de-)serialisation." begin
@@ -465,13 +739,17 @@ using YAML
             DiffFusion.SimpleModel,
         ]
         @test [ k for k in keys(obj_dict) ] == ref_alias_list
-        @test [ typeof(v) for v in values(obj_dict) ] == ref_type_list
+        for (obj, obj_type) in zip(values(obj_dict), ref_type_list)
+            @test isa(obj, obj_type)
+        end
         # @test string(obj_dict["Std"]) == string(c) # CorrelationHolder types do not match.
         yaml_string = YAML.write(s)
         yaml_dict_list = YAML.load(yaml_string; dicttype=OrderedDict{String,Any})
         obj_dict = DiffFusion.deserialise_from_list(yaml_dict_list)
         @test [ k for k in keys(obj_dict) ] == ref_alias_list
-        @test [ typeof(v) for v in values(obj_dict) ] == ref_type_list
+        for (obj, obj_type) in zip(values(obj_dict), ref_type_list)
+            @test isa(obj, obj_type)
+        end
         @test yaml_dict_list == s
         # println(yaml_dict_list)
     end
@@ -554,6 +832,7 @@ using YAML
                 ),
             "forward_indices" => OrderedDict{String, Any}(),
             "future_indices" => OrderedDict{String, Any}(),
+            "processes" => OrderedDict{String, Any}(),
             "fixings" => OrderedDict{String, Any}(),
         )
         o = DiffFusion.deserialise(d)

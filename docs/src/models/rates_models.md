@@ -22,6 +22,14 @@ DiffFusion.gaussian_hjm_model(
     )
 ```
 
+```@docs
+DiffFusion.QuasiGaussianModel
+```
+
+```@docs
+DiffFusion.quasi_gaussian_multi_factor_model
+```
+
 ## Model Functions for Simulation
 
 ```@docs
@@ -61,6 +69,10 @@ DiffFusion.benchmark_times_scaling_zero_rate
 ```
 
 ```@docs
+DiffFusion.benchmark_times_scaling_diagonal
+```
+
+```@docs
 DiffFusion.func_Theta_x
 ```
 
@@ -86,6 +98,30 @@ DiffFusion.func_H_T_dense
 
 ```@docs
 DiffFusion.func_Sigma_T
+```
+
+```@docs
+DiffFusion.func_sigma_f
+```
+
+```@docs
+DiffFusion.func_sigma_T
+```
+
+```@docs
+DiffFusion.func_sigma_T_hyb
+```
+
+```@docs
+DiffFusion.auxiliary_variable
+```
+
+```@docs
+DiffFusion.integrated_state_variable
+```
+
+```@docs
+DiffFusion.stochastic_volatility
 ```
 
 ## Model Functions for Payoff Evaluation
@@ -144,6 +180,37 @@ DiffFusion.swap_rate_correlation
 DiffFusion.model_implied_volatilties
 ```
 
+## Functors for Simulation Functions
+
+```@docs
+DiffFusion.HjmHybridVolatility
+```
+
+```@docs
+DiffFusion.GaussianHybridVolatility
+```
+
+```@docs
+DiffFusion.QuasiGaussianHybridVolatility
+```
+
+```@docs
+DiffFusion.HjmAuxiliaryVariable
+```
+
+```@docs
+DiffFusion.GaussianHjmAuxiliaryVariable
+```
+
+```@docs
+DiffFusion.QuasiGaussianAuxiliaryVariable
+```
+
+```@docs
+DiffFusion.HjmThetaIntegrand
+```
+
+
 ## Model Calibration
 
 ```@docs
@@ -172,4 +239,31 @@ DiffFusion.gaussian_hjm_model(
     max_iter::Integer = 5,
     volatility_regularisation::ModelValue = 0.0,
     )
+```
+
+
+## Quasi-Gaussian Model Functions
+
+```@docs
+DiffFusion.QuasiGaussianThetaIntegrand
+```
+
+```@docs
+DiffFusion.Theta_vectorized
+```
+
+```@docs
+DiffFusion.QuasiGaussianModelSigma
+```
+
+```@docs
+DiffFusion.Sigma_T_vectorized
+```
+
+```@docs
+DiffFusion.SigmaTGammaSigma
+```
+
+```@docs
+DiffFusion.covariance_vectorized
 ```

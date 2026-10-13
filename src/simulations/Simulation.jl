@@ -48,8 +48,10 @@ function simple_simulation(
     brownian_increments::Function = pseudo_brownian_increments,
     store_brownian_increments::Bool = false,
     )
+    @assert state_alias(model) == state_alias_Sigma(model)  # deal with general case later...
+    times = [ ModelTime(t) for t in times]  # we require ModelTime in Theta(...)
     dZ = brownian_increments(
-        length(state_alias(model)),
+        length(state_alias_Sigma(model)),
         n_paths,
         length(times) - 1,
     )
@@ -63,8 +65,8 @@ function simple_simulation(
         X_t = Theta(model,times[k-1],times[k]) .+ H_T(model,times[k-1],times[k])' * X[:,:,k-1]
         (vol, corr) = volatility_and_correlation(model,ch,times[k-1],times[k])
         L = cholesky(corr).L
-        # apply diffusion
-        X_t += (sqrt(times[k] - times[k-1]) * (L .* vol)) * dZ[:,:,k-1]
+        # apply diffusion, require state_alias == state_alias_Sigma
+        X_t += (sqrt(times[k] - times[k-1]) .* (L .* vol)) * dZ[:,:,k-1]
         X = cat(X, X_t, dims=3)
     end
     if !store_brownian_increments
@@ -97,8 +99,10 @@ function diagonal_simulation(
     brownian_increments::Function = pseudo_brownian_increments,
     store_brownian_increments::Bool = false,
     )
+    @assert state_alias(model) == state_alias_Sigma(model)  # deal with general case later...
+    times = [ ModelTime(t) for t in times]  # we require ModelTime in Theta(...)
     dZ = brownian_increments(
-        length(state_alias(model)),
+        length(state_alias_Sigma(model)),
         n_paths,
         length(times) - 1,
     )
@@ -115,14 +119,14 @@ function diagonal_simulation(
             Theta(model, times[k-1], times[k], model_state(X[:,p:p,k-1], idx, params))
             for p in 1:n_paths
         ]...)
-        X_t = Θ + H_T(model,times[k-1],times[k])' * X[:,:,k-1]
+        X_t = Θ .+ H_T(model,times[k-1],times[k])' * X[:,:,k-1]
         SX0 = model_state(zeros(length(state_alias(model)), 1), idx, params)
         (vol, corr) = volatility_and_correlation(model,ch,times[k-1],times[k], SX0)  # effectively, state-independent calculation
         SX = model_state(X[:,:,k-1], idx, params)
         Vol = diagonal_volatility(model, times[k-1], times[k], SX)
         L = cholesky(corr).L
-        # apply diffusion
-        X_t += sqrt(times[k] - times[k-1]) * L * dZ[:,:,k-1] .* Vol
+        # apply diffusion, require state_alias == state_alias_Sigma
+        X_t += sqrt(times[k] - times[k-1]) .* L * dZ[:,:,k-1] .* Vol
         X = cat(X, X_t, dims=3)
     end
     if !store_brownian_increments
@@ -130,4 +134,74 @@ function diagonal_simulation(
     end
     #
     return Simulation(model, times, X, dZ)
+end
+
+
+function _Sigma_step(
+    k::Integer,
+    p::Integer,
+    m::Model,
+    ch::CorrelationHolder,
+    times::AbstractVector,
+    SX::ModelState,
+    dZ::AbstractArray,
+    idx_list::AbstractVector,
+    n_zeros::Integer,
+    )
+    #
+    (vol, corr) = volatility_and_correlation(m, ch, times[k-1], times[k], SX)
+    L = cholesky(corr).L
+    ΣdW = (sqrt(times[k] - times[k-1]) .* (L .* vol)) * dZ[:, p, k-1]
+    #
+    ΣdW = vcat(ΣdW, zeros(n_zeros))[idx_list]  # inflate and re-order vector
+    return ΣdW
+end
+
+
+function state_dependent_simulation(
+    model::Model,
+    ch::CorrelationHolder,
+    times::AbstractVector,
+    n_paths::Int;
+    with_progress_bar::Bool = true,
+    brownian_increments::Function = pseudo_brownian_increments,
+    store_brownian_increments::Bool = false,
+    )
+    #
+    times = [ ModelTime(t) for t in times]  # we require ModelTime in Theta(...)
+    dZ = brownian_increments(
+        length(state_alias_Sigma(model)),
+        n_paths,
+        length(times) - 1,
+    )
+    X = zeros(length(state_alias(model)), n_paths, 1)
+    iter = 2:length(times)
+    if with_progress_bar
+        iter = ProgressBar(iter)
+    end
+    idx_dict = alias_dictionary(state_alias(model))
+    idx_list = alias_mapping(state_alias(model), state_alias_Sigma(model))
+    n_zeros = length(state_alias(model)) - length(state_alias_Sigma(model))
+    for k in iter
+        # E[X(t) | X(s)]
+        params = simulation_parameters(model, ch, times[k-1], times[k])
+        Θ = hcat([
+            Theta(model, times[k-1], times[k], model_state(@view(X[:,p:p,k-1]), idx_dict, params))
+            for p in 1:n_paths
+        ]...)
+        #
+        X_t = Θ .+ H_T(model, times[k-1], times[k])' * X[:,:,k-1]
+        #
+        ΣdW = hcat([
+            _Sigma_step(k, p, model, ch, times, model_state(@view(X[:,p:p,k-1]), idx_dict, params), dZ, idx_list, n_zeros)
+            for p in 1:n_paths
+        ]...)
+        X = cat(X, X_t .+ ΣdW, dims=3)
+    end
+    if !store_brownian_increments
+        dZ = nothing
+    end
+    #
+    return Simulation(model, times, X, dZ)
+
 end

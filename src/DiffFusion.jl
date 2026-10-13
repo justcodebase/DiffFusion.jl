@@ -1,11 +1,8 @@
 module DiffFusion
 
-using ChainRulesCore
 using DelimitedFiles
 using Distributed
 using Distributions
-using FiniteDifferences
-using ForwardDiff
 using Interpolations
 using LinearAlgebra
 using LsqFit
@@ -15,10 +12,17 @@ using ProgressBars
 using QuadGK
 using Random
 using Roots
+using SharedArrays
 using Sobol
 using SparseArrays
 using StatsBase
-using Zygote
+
+# AD modules
+using ChainRulesCore
+using DifferentiationInterface
+using FiniteDifferences: FiniteDifferences
+using ForwardDiff: ForwardDiff
+using Zygote: Zygote
 
 import Base.length
 import Base.string
@@ -26,7 +30,7 @@ import Base.string
 """
 A type alias for variables representing time.
 """
-ModelTime = Number
+ModelTime = Float64
 
 """
 A type alias for variables representing modelled quantities.
@@ -48,8 +52,13 @@ include("models/credit/CoxIngersollRossModel.jl")
 include("models/hybrid/CompositeModel.jl")
 include("models/hybrid/SimpleModel.jl")
 include("models/hybrid/DiagonalModel.jl")
+include("models/processes/OrnsteinUhlenbeckModel.jl")
 include("models/rates/SeparableHjmModel.jl")
 include("models/rates/GaussianHjmModel.jl")
+include("models/rates/QuasiGaussianModel.jl")
+include("models/rates/QuasiGaussianMultiFactorModel.jl")
+include("models/rates/QuasiGaussianShortRateModel.jl")
+include("models/rates/QuasiGaussianSimulationFunctions.jl")
 include("models/rates/ForwardRateVolatility.jl")
 include("models/rates/SwapRateVolatility.jl")
 include("models/rates/SwapRateCalibration.jl")
@@ -61,6 +70,7 @@ include("models/inflation/ConvexityAdjustment.jl")
 
 include("simulations/RandomNumbers.jl")
 include("simulations/Simulation.jl")
+include("simulations/QuasiGaussianSimulation.jl")
 
 include("paths/AbstractPath.jl")
 include("paths/Context.jl")
@@ -84,11 +94,13 @@ include("products/RelativeReturnCoupon.jl")
 include("products/RelativeReturnIndexCoupon.jl")
 
 include("products/CashFlowLeg.jl")
+include("products/CreditRiskyCashFlowLeg.jl")
 include("products/SwaptionLeg.jl")
 include("products/MtMCashFlowLeg.jl")
 include("products/CashAndAssetLegs.jl")
 include("products/BermudanSwaptionLeg.jl")
 
+include("utils/AliasMapping.jl")
 include("utils/Bachelier.jl")
 include("utils/Barriers.jl")
 include("utils/Black.jl")
@@ -96,14 +108,18 @@ include("utils/BrownianBridge.jl")
 include("utils/Gradients.jl")
 include("utils/Integrations.jl")
 include("utils/InterpolationMethods.jl")
+include("utils/Later.jl")
 include("utils/PolynomialRegression.jl")
 include("utils/PiecewiseRegression.jl")
 
 include("analytics/Scenarios.jl")
+include("analytics/ScenariosParallel.jl")
 include("analytics/Analytics.jl")
 include("analytics/Collateral.jl")
 include("analytics/Valuations.jl")
 include("analytics/Covariances.jl")
+
+include("calibration/ImpliedSwaptionVolatilities.jl")
 
 include("serialisation/Serialisations.jl")
 include("serialisation/Array.jl")
@@ -128,9 +144,15 @@ module Examples
     include("examples/Products.jl")
 end # module
 
-include("chainrules/models.jl")
-include("chainrules/termstructures.jl")
-include("chainrules/simulations.jl")
+# Zygote is broken with Julia 1.12; we may exclude Zygote at some point
+const _use_zygote = true
+if _use_zygote
+    include("analytics/ValuationsViaZygote.jl")
+    include("chainrules/control.jl")
+    include("chainrules/models.jl")
+    include("chainrules/termstructures.jl")
+    include("chainrules/simulations.jl")
+end
 
 "List of function names eligible for de-serialisation."
 const _eligible_func_names = [ string(n) for n in names(DiffFusion; all = true, imported = false) ]

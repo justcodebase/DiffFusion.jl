@@ -22,6 +22,22 @@ function length(p::AbstractPath)
     error("AbstractPath needs to implement length method.")
 end
 
+
+"""
+    process_value(p::AbstractPath, t::ModelTime, idx::Int, key::String)
+
+Return the value of a process at a given time. We allow for multi-dimensional
+processes. The `idx` argument specifies which component of the process.
+
+Note that simulated process is modulated by a parameter term structure.
+The `idx` argument must we within the range of the process dimension and
+parameter term structure dimension.
+"""
+function process_value(p::AbstractPath, t::ModelTime, idx::Int, key::String)
+    error("AbstractPath needs to implement process_value method.")
+end
+
+
 """
     numeraire(p::AbstractPath, t::ModelTime, curve_key::String)
 
@@ -72,6 +88,34 @@ Calculate a compounding factor P(t,T1) / P(t,T2).
 """
 function compounding_factor(p::AbstractPath, t::ModelTime, T1::ModelTime, T2::ModelTime, key::String)
     error("AbstractPath needs to implement compounding_factor method.")
+end
+
+
+"""
+    non_default_probability(p::AbstractPath, t::ModelTime, key::String)
+
+Calculate the probability of not defaulting until t.
+
+Probability is specified as P[τ > t | λ(s), 0 ≤ s ≤ t ] where tau is the first default time
+and λ(s) is the default intensity (hazard rate) process.
+
+The probability P[τ > t | .] is used to approximate the indicator function 1_{τ > t} in the
+valuation of defaultable claims.
+"""
+function non_default_probability(p::AbstractPath, t::ModelTime, key::String)
+    error("AbstractPath needs to implement non_default_probability method.")
+end
+
+
+"""
+    survival_probability(p::AbstractPath, t::ModelTime, T::ModelTime, key::String)
+
+Calculate the survival probability from time t to time T.
+
+The survival probability is the probability P[τ > T | τ > t], where τ is the first default time.
+"""
+function survival_probability(p::AbstractPath, t::ModelTime, T::ModelTime, key::String)
+    error("AbstractPath needs to implement survival_probability method.")
 end
 
 

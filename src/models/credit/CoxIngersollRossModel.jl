@@ -3,11 +3,11 @@
 """
 A Cox-Ingersoll-Ross model with constant parameters.
 """
-struct CoxIngersollRossModel <: ComponentModel
+struct CoxIngersollRossModel{T<:ModelValue} <: ComponentModel
     alias::String
-    params::ParameterTermstructure  # (z0, chi, theta, sigma)
-    state_alias::AbstractVector
-    factor_alias::AbstractVector
+    params::BackwardFlatParameter{T}  # (z0, chi, theta, sigma)
+    state_alias::Vector{String}
+    factor_alias::Vector{String}
 end
 
 """
@@ -164,29 +164,46 @@ end
 # Model interface
 
 """
+    state_dependent_Theta(m::CoxIngersollRossModel)
+
 Return whether Theta requires a state vector input X.
 """
-state_dependent_Theta(m::CoxIngersollRossModel) = true
+state_dependent_Theta(m::CoxIngersollRossModel) = true  # COV_EXCL_LINE
 
 """
+    state_alias_H(m::CoxIngersollRossModel)
+
 Return a list of state alias strings required for (H * X) calculation.
 """
 state_alias_H(m::CoxIngersollRossModel) = state_alias(m)
 
 """
+    state_dependent_H(m::CoxIngersollRossModel)
+
 Return whether H requires a state vector input X.
 """
-state_dependent_H(m::CoxIngersollRossModel) = false
+state_dependent_H(m::CoxIngersollRossModel) = false  # COV_EXCL_LINE
 
 """
+    state_alias_Sigma(m::CoxIngersollRossModel)
+
+Return a list of state alias strings required for (Sigma(u)' Gamma Sigma(u)) calculation.
+"""
+state_alias_Sigma(m::CoxIngersollRossModel) = state_alias(m::CoxIngersollRossModel)
+
+"""
+    factor_alias_Sigma(m::CoxIngersollRossModel)
+
 Return a list of factor alias strings required for (Sigma(u)^T Gamma Sigma(u)) calculation.
 """
 factor_alias_Sigma(m::CoxIngersollRossModel) = factor_alias(m)
 
 """
+    state_dependent_Sigma(m::CoxIngersollRossModel)
+
 Return whether Sigma requires a state vector input X.
 """
-state_dependent_Sigma(m::CoxIngersollRossModel) = true
+state_dependent_Sigma(m::CoxIngersollRossModel) = true  # COV_EXCL_LINE
 
 
 """
@@ -265,7 +282,7 @@ function Sigma_T(
     z_s = cir_z0(m) * exp.(x_s)
     (a, b2) = cir_lognormal_approximation(m,z_s,X.params)
     Σ_x = sqrt.(b2 ./ (t-s))
-    f(u) = reshape(Σ_x, (1,1))
+    f = (u) -> reshape(Σ_x, (1,1))
     return f
 end
 
